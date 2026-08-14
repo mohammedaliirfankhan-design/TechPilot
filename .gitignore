@@ -48,3 +48,5 @@ Thumbs.db
 *.pem
 *.key
 *.crt
+# TechPilot agent runtime identity
+agent/data/device_id
