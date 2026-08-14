@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>TechPilot Remote Viewer</title>
+
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        header {
+            padding: 15px 20px;
+            background: #1b1b1b;
+            border-bottom: 1px solid #333;
+        }
+
+        #status {
+            color: #aaa;
+        }
+
+        #screen {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        #screen img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <strong>TechPilot Remote Viewer</strong>
+        <span id="status">Connecting...</span>
+    </header>
+
+    <div id="screen">
+        <img id="screenImage" alt="Remote screen">
+    </div>
+
+    <script>
+
+        const sessionId = 16;
+
+        const status = document.getElementById("status");
+        const screenImage = document.getElementById("screenImage");
+
+        const socket = new WebSocket(
+            `ws://192.168.0.69:8000/api/v1/remote/sessions/${sessionId}/stream`
+        );
+
+        socket.binaryType = "arraybuffer";
+
+        socket.onopen = () => {
+            console.log("[VIEWER] Connected");
+            status.textContent = " Connected";
+        };
+
+        socket.onmessage = (event) => {
+
+            console.log(
+                "[VIEWER] Frame received:",
+                event.data.byteLength,
+                "bytes"
+            );
+
+            const blob = new Blob(
+                [event.data],
+                { type: "image/jpeg" }
+            );
+
+            const imageUrl = URL.createObjectURL(blob);
+
+            screenImage.onload = () => {
+                URL.revokeObjectURL(imageUrl);
+            };
+
+            screenImage.src = imageUrl;
+        };
+
+        socket.onerror = (error) => {
+            console.error("[VIEWER] WebSocket error:", error);
+            status.textContent = " Connection error";
+        };
+
+        socket.onclose = () => {
+            console.log("[VIEWER] Disconnected");
+            status.textContent = " Disconnected";
+        };
+
+    </script>
+
+</body>
+</html>
