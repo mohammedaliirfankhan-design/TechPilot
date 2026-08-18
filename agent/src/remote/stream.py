@@ -10,7 +10,7 @@ class RemoteScreenStreamer:
         self,
         server_url: str,
         session_id: int,
-        fps: int = 5,
+        fps: int = 1,
     ):
         self.server_url = server_url
         self.session_id = session_id

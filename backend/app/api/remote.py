@@ -12,6 +12,8 @@ from app.database import get_db
 from app.models.agent import Agent
 from app.models.remote_session import RemoteSession
 from app.services.remote_stream import remote_stream_manager
+from app.services.remote_control import remote_control_manager
+import json
 
 router = APIRouter(
     prefix="/api/v1/remote",
@@ -78,7 +80,7 @@ def get_pending_session(
         db.query(RemoteSession)
         .filter(
             RemoteSession.device_id == device_id,
-            RemoteSession.status.in_(["REQUESTED", "ACCEPTED", "CONNECTING"])
+            RemoteSession.status.in_(["REQUESTED", "ACCEPTED", "CONNECTING", "ACTIVE"])
         )
         .order_by(RemoteSession.id.desc())
         .first()
@@ -344,3 +346,252 @@ async def remote_agent_stream(
         await remote_stream_manager.disconnect_agent(
             session_id
         )
+@router.websocket("/sessions/{session_id}/control")
+async def remote_control_viewer(
+    websocket: WebSocket,
+    session_id: int,
+    db: Session = Depends(get_db)
+):
+    session = (
+        db.query(RemoteSession)
+        .filter(RemoteSession.id == session_id)
+        .first()
+    )
+
+    if not session:
+        await websocket.close(code=1008)
+        return
+
+    if session.status not in ["CONNECTING", "ACTIVE"]:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+
+    print(
+        f"[CONTROL] Viewer connected for session {session_id}"
+    )
+
+    try:
+
+        while True:
+
+            message = await websocket.receive_text()
+
+            print(
+                f"[CONTROL] Command received from viewer "
+                f"for session {session_id}: {message}"
+            )
+
+            await remote_control_manager.send_command(
+                session_id,
+                message
+            )
+
+    except WebSocketDisconnect:
+
+        print(
+            f"[CONTROL] Viewer disconnected "
+            f"from session {session_id}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"[CONTROL] Viewer control error "
+            f"for session {session_id}: {e}"
+        )
+
+
+@router.websocket("/sessions/{session_id}/agent-control")
+async def remote_agent_control(
+    websocket: WebSocket,
+    session_id: int,
+    db: Session = Depends(get_db)
+):
+    session = (
+        db.query(RemoteSession)
+        .filter(RemoteSession.id == session_id)
+        .first()
+    )
+
+    if not session:
+        await websocket.close(code=1008)
+        return
+
+    if session.status not in ["CONNECTING", "ACTIVE"]:
+        await websocket.close(code=1008)
+        return
+
+    await remote_control_manager.connect_agent(
+        session_id,
+        websocket
+    )
+
+    try:
+
+        while True:
+
+            message = await websocket.receive_text()
+
+            print(
+                f"[CONTROL] Agent message for session "
+                f"{session_id}: {message}"
+            )
+
+    except WebSocketDisconnect:
+
+        print(
+            f"[CONTROL] Agent disconnected from session "
+            f"{session_id}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"[CONTROL] Agent control error "
+            f"for session {session_id}: {e}"
+        )
+
+    finally:
+
+        await remote_control_manager.disconnect_agent(
+            session_id
+        )
+@router.websocket("/sessions/{session_id}/control")
+async def remote_control_viewer(
+    websocket: WebSocket,
+    session_id: int,
+    db: Session = Depends(get_db)
+):
+    session = (
+        db.query(RemoteSession)
+        .filter(RemoteSession.id == session_id)
+        .first()
+    )
+
+    if not session:
+        await websocket.close(code=1008)
+        return
+
+    if session.status not in ["CONNECTING", "ACTIVE"]:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+
+    print(
+        f"[CONTROL] Viewer connected for session {session_id}"
+    )
+
+    try:
+
+        while True:
+
+            message = await websocket.receive_text()
+
+            print(
+                f"[CONTROL] Command received from viewer "
+                f"for session {session_id}: {message}"
+            )
+
+            await remote_control_manager.send_command(
+                session_id,
+                message
+            )
+
+    except WebSocketDisconnect:
+
+        print(
+            f"[CONTROL] Viewer disconnected "
+            f"from session {session_id}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"[CONTROL] Viewer control error "
+            f"for session {session_id}: {e}"
+        )
+
+
+@router.websocket("/sessions/{session_id}/agent-control")
+async def remote_agent_control(
+    websocket: WebSocket,
+    session_id: int,
+    db: Session = Depends(get_db)
+):
+    session = (
+        db.query(RemoteSession)
+        .filter(RemoteSession.id == session_id)
+        .first()
+    )
+
+    if not session:
+        await websocket.close(code=1008)
+        return
+
+    if session.status not in ["CONNECTING", "ACTIVE"]:
+        await websocket.close(code=1008)
+        return
+
+    await remote_control_manager.connect_agent(
+        session_id,
+        websocket
+    )
+
+    try:
+
+        while True:
+
+            message = await websocket.receive_text()
+
+            print(
+                f"[CONTROL] Agent message for session "
+                f"{session_id}: {message}"
+            )
+
+    except WebSocketDisconnect:
+
+        print(
+            f"[CONTROL] Agent disconnected from session "
+            f"{session_id}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"[CONTROL] Agent control error "
+            f"for session {session_id}: {e}"
+        )
+
+    finally:
+
+        await remote_control_manager.disconnect_agent(
+            session_id
+        )
+@router.post("/sessions/{session_id}/control")
+async def send_remote_control(
+    session_id: int,
+    command: dict,
+):
+
+    command_json = json.dumps(command)
+
+    success = await remote_control_manager.send_command(
+        session_id,
+        command_json
+    )
+
+    if not success:
+
+        return {
+            "status": "failed",
+            "message": "Agent control channel is not connected"
+        }
+
+    return {
+        "status": "sent",
+        "session_id": session_id,
+        "command": command
+    }

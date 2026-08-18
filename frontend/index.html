@@ -1,110 +1,1004 @@
 <!DOCTYPE html>
+
 <html lang="en">
+
 <head>
+
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
     <title>TechPilot Remote Viewer</title>
 
+
     <style>
-        body {
-            margin: 0;
-            background: #111;
-            color: white;
-            font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
+
+        * {
+            box-sizing: border-box;
         }
 
+
+        html,
+        body {
+
+            margin: 0;
+            padding: 0;
+
+            width: 100%;
+            height: 100%;
+
+            overflow: hidden;
+
+            background: #111;
+
+            color: white;
+
+            font-family: Arial, sans-serif;
+        }
+
+
+        body {
+
+            display: flex;
+
+            flex-direction: column;
+        }
+
+
+        /* =====================================================
+           HEADER
+           ===================================================== */
+
         header {
-            padding: 15px 20px;
+
+            flex: 0 0 auto;
+
+            height: 55px;
+
+            padding: 0 20px;
+
+            display: flex;
+
+            align-items: center;
+
             background: #1b1b1b;
+
             border-bottom: 1px solid #333;
         }
 
-        #status {
-            color: #aaa;
+
+        header strong {
+
+            font-size: 18px;
         }
+
+
+        #status {
+
+            margin-left: 12px;
+
+            color: #aaa;
+
+            font-size: 14px;
+        }
+
+
+        /* =====================================================
+           SCREEN CONTAINER
+           ===================================================== */
 
         #screen {
+
             flex: 1;
+
+            min-height: 0;
+
+            width: 100%;
+
             display: flex;
+
             align-items: center;
+
             justify-content: center;
+
             overflow: hidden;
+
+            background: #111;
+
+            position: relative;
         }
 
-        #screen img {
+
+        /* =====================================================
+           REMOTE SCREEN CANVAS
+           ===================================================== */
+
+        #screenCanvas {
+
+            display: block;
+
             max-width: 100%;
+
             max-height: 100%;
-            object-fit: contain;
+
+            width: auto;
+
+            height: auto;
+
+            cursor: crosshair;
+
+            user-select: none;
+
+            -webkit-user-select: none;
+
+            background: #000;
         }
+
     </style>
+
 </head>
+
 
 <body>
 
+
     <header>
-        <strong>TechPilot Remote Viewer</strong>
-        <span id="status">Connecting...</span>
+
+        <strong>
+            TechPilot Remote Viewer
+        </strong>
+
+        <span id="status">
+            Connecting...
+        </span>
+
     </header>
 
+
     <div id="screen">
-        <img id="screenImage" alt="Remote screen">
+
+        <canvas
+            id="screenCanvas"
+        ></canvas>
+
     </div>
+
 
     <script>
 
-        const sessionId = 16;
+        // =====================================================
+        // CONFIGURATION
+        // =====================================================
 
-        const status = document.getElementById("status");
-        const screenImage = document.getElementById("screenImage");
+        const sessionId = 19;
+
+        const backendUrl =
+            "http://192.168.0.69:8000";
+
+
+        // =====================================================
+        // DOM ELEMENTS
+        // =====================================================
+
+        const status =
+            document.getElementById("status");
+
+        const screenCanvas =
+            document.getElementById("screenCanvas");
+
+        const screenContext =
+            screenCanvas.getContext("2d");
+
+
+        // =====================================================
+        // FRAME STATE
+        // =====================================================
+
+        let renderingFrame = false;
+
+        let pendingFrame = null;
+
+        let remoteWidth = 0;
+
+        let remoteHeight = 0;
+
+
+        // =====================================================
+        // SCREEN WEBSOCKET
+        // =====================================================
 
         const socket = new WebSocket(
+
             `ws://192.168.0.69:8000/api/v1/remote/sessions/${sessionId}/stream`
+
         );
+
 
         socket.binaryType = "arraybuffer";
 
-        socket.onopen = () => {
-            console.log("[VIEWER] Connected");
-            status.textContent = " Connected";
-        };
 
-        socket.onmessage = (event) => {
+        // =====================================================
+        // SCREEN CONNECTED
+        // =====================================================
+
+        socket.onopen = () => {
 
             console.log(
-                "[VIEWER] Frame received:",
-                event.data.byteLength,
-                "bytes"
+                "[VIEWER] Screen connected"
             );
 
-            const blob = new Blob(
-                [event.data],
-                { type: "image/jpeg" }
-            );
-
-            const imageUrl = URL.createObjectURL(blob);
-
-            screenImage.onload = () => {
-                URL.revokeObjectURL(imageUrl);
-            };
-
-            screenImage.src = imageUrl;
+            status.textContent =
+                "Connected";
         };
+
+
+        // =====================================================
+        // FRAME RECEIVED
+        // =====================================================
+
+        socket.onmessage = async (event) => {
+
+            try {
+
+                console.log(
+                    "[VIEWER] Frame received:",
+                    event.data.byteLength,
+                    "bytes"
+                );
+
+
+                /*
+                 * IMPORTANT:
+                 *
+                 * We do NOT immediately render every frame.
+                 *
+                 * If frames arrive faster than the browser can
+                 * render them, they can pile up and cause
+                 * visible glitching.
+                 *
+                 * We keep ONLY the newest frame.
+                 */
+
+                pendingFrame = event.data;
+
+
+                if (!renderingFrame) {
+
+                    renderNextFrame();
+
+                }
+
+            }
+
+            catch (error) {
+
+                console.error(
+                    "[VIEWER] Frame receive error:",
+                    error
+                );
+
+            }
+
+        };
+
+
+        // =====================================================
+        // RENDER LATEST FRAME
+        // =====================================================
+
+        async function renderNextFrame() {
+
+            if (!pendingFrame) {
+
+                renderingFrame = false;
+
+                return;
+            }
+
+
+            renderingFrame = true;
+
+
+            const frame =
+                pendingFrame;
+
+
+            /*
+             * Clear the pending frame immediately.
+             *
+             * If another frame arrives while this frame is
+             * decoding, it replaces pendingFrame.
+             */
+
+            pendingFrame = null;
+
+
+            try {
+
+                const blob = new Blob(
+
+                    [frame],
+
+                    {
+                        type: "image/jpeg"
+                    }
+
+                );
+
+
+                const bitmap =
+                    await createImageBitmap(blob);
+
+
+                // ---------------------------------------------
+                // Set canvas to actual remote resolution
+                // ---------------------------------------------
+
+                if (
+
+                    remoteWidth !== bitmap.width ||
+
+                    remoteHeight !== bitmap.height
+
+                ) {
+
+                    remoteWidth =
+                        bitmap.width;
+
+                    remoteHeight =
+                        bitmap.height;
+
+
+                    screenCanvas.width =
+                        remoteWidth;
+
+                    screenCanvas.height =
+                        remoteHeight;
+
+
+                    console.log(
+                        "[VIEWER] Remote resolution:",
+                        remoteWidth,
+                        "x",
+                        remoteHeight
+                    );
+
+                }
+
+
+                // ---------------------------------------------
+                // Clear previous frame
+                // ---------------------------------------------
+
+                screenContext.clearRect(
+
+                    0,
+                    0,
+                    screenCanvas.width,
+                    screenCanvas.height
+
+                );
+
+
+                // ---------------------------------------------
+                // Draw latest frame
+                // ---------------------------------------------
+
+                screenContext.drawImage(
+
+                    bitmap,
+
+                    0,
+                    0,
+                    screenCanvas.width,
+                    screenCanvas.height
+
+                );
+
+
+                bitmap.close();
+
+            }
+
+            catch (error) {
+
+                console.error(
+                    "[VIEWER] Frame rendering error:",
+                    error
+                );
+
+            }
+
+
+            /*
+             * Render another frame if one arrived while
+             * this frame was being processed.
+             */
+
+            if (pendingFrame) {
+
+                requestAnimationFrame(
+                    renderNextFrame
+                );
+
+            }
+
+            else {
+
+                renderingFrame = false;
+
+            }
+
+        }
+
+
+        // =====================================================
+        // SCREEN SOCKET ERROR
+        // =====================================================
 
         socket.onerror = (error) => {
-            console.error("[VIEWER] WebSocket error:", error);
-            status.textContent = " Connection error";
+
+            console.error(
+                "[VIEWER] Screen WebSocket error:",
+                error
+            );
+
+            status.textContent =
+                "Screen connection error";
         };
 
+
+        // =====================================================
+        // SCREEN SOCKET CLOSED
+        // =====================================================
+
         socket.onclose = () => {
-            console.log("[VIEWER] Disconnected");
-            status.textContent = " Disconnected";
+
+            console.log(
+                "[VIEWER] Screen disconnected"
+            );
+
+            status.textContent =
+                "Screen disconnected";
         };
+
+
+        // =====================================================
+        // SEND CONTROL COMMAND
+        // =====================================================
+
+        async function sendCommand(command) {
+
+            console.log(
+                "[VIEWER] Sending command:",
+                command
+            );
+
+
+            try {
+
+                const response =
+                    await fetch(
+
+                        `${backendUrl}/api/v1/remote/sessions/${sessionId}/control`,
+
+                        {
+
+                            method: "POST",
+
+                            headers: {
+
+                                "Content-Type":
+                                    "application/json"
+
+                            },
+
+                            body:
+                                JSON.stringify(command)
+
+                        }
+
+                    );
+
+
+                const result =
+                    await response.json();
+
+
+                console.log(
+                    "[VIEWER] Control response:",
+                    result
+                );
+
+            }
+
+            catch (error) {
+
+                console.error(
+                    "[VIEWER] Control command failed:",
+                    error
+                );
+
+                status.textContent =
+                    "Control error";
+            }
+
+        }
+
+
+        // =====================================================
+        // GET REMOTE COORDINATES
+        // =====================================================
+
+        function getRemoteCoordinates(event) {
+
+            const rect =
+                screenCanvas.getBoundingClientRect();
+
+
+            if (
+
+                !screenCanvas.width ||
+
+                !screenCanvas.height ||
+
+                !rect.width ||
+
+                !rect.height
+
+            ) {
+
+                return null;
+
+            }
+
+
+            /*
+             * Canvas itself preserves the remote screen
+             * aspect ratio, so these scale factors map the
+             * displayed canvas coordinates back to the
+             * actual remote resolution.
+             */
+
+            const scaleX =
+                screenCanvas.width /
+                rect.width;
+
+
+            const scaleY =
+                screenCanvas.height /
+                rect.height;
+
+
+            let x =
+                Math.round(
+
+                    (event.clientX - rect.left)
+                    * scaleX
+
+                );
+
+
+            let y =
+                Math.round(
+
+                    (event.clientY - rect.top)
+                    * scaleY
+
+                );
+
+
+            // ---------------------------------------------
+            // Keep coordinates inside remote screen
+            // ---------------------------------------------
+
+            x =
+                Math.max(
+                    0,
+                    Math.min(
+                        x,
+                        screenCanvas.width - 1
+                    )
+                );
+
+
+            y =
+                Math.max(
+                    0,
+                    Math.min(
+                        y,
+                        screenCanvas.height - 1
+                    )
+                );
+
+
+            return {
+
+                x: x,
+
+                y: y
+
+            };
+
+        }
+
+
+        // =====================================================
+// MOUSE MOVE
+// =====================================================
+
+// Keep only the newest mouse position.
+// This prevents hundreds of HTTP requests from
+// building up in the backend.
+
+let latestMousePosition = null;
+
+let mouseMoveSending = false;
+
+let lastMouseSendTime = 0;
+
+
+// Send mouse position at most ~20 times per second.
+
+const MOUSE_SEND_INTERVAL = 50;
+
+
+async function processMouseMovement() {
+
+    if (mouseMoveSending) {
+        return;
+    }
+
+    if (!latestMousePosition) {
+        return;
+    }
+
+    const now = performance.now();
+
+    if (
+        now - lastMouseSendTime <
+        MOUSE_SEND_INTERVAL
+    ) {
+        return;
+    }
+
+    const coordinates =
+        latestMousePosition;
+
+    latestMousePosition = null;
+
+    mouseMoveSending = true;
+
+    lastMouseSendTime = now;
+
+    try {
+
+        await sendCommand({
+
+            type: "mouse_move",
+
+            x: coordinates.x,
+
+            y: coordinates.y
+
+        });
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "[VIEWER] Mouse movement failed:",
+            error
+        );
+
+    }
+
+    finally {
+
+        mouseMoveSending = false;
+
+        if (latestMousePosition) {
+
+            requestAnimationFrame(
+                processMouseMovement
+            );
+
+        }
+
+    }
+
+}
+
+
+screenCanvas.addEventListener(
+
+    "mousemove",
+
+    (event) => {
+
+        const coordinates =
+            getRemoteCoordinates(event);
+
+        if (!coordinates) {
+            return;
+        }
+
+        // Replace old position with newest position.
+        latestMousePosition =
+            coordinates;
+
+        processMouseMovement();
+
+    }
+
+);
+
+
+        // =====================================================
+        // MOUSE CLICK
+        // =====================================================
+
+        screenCanvas.addEventListener(
+
+            "click",
+
+            (event) => {
+
+                event.preventDefault();
+
+
+                const coordinates =
+                    getRemoteCoordinates(event);
+
+
+                if (!coordinates) {
+
+                    return;
+
+                }
+
+
+                sendCommand({
+
+                    type: "mouse_click",
+
+                    x: coordinates.x,
+
+                    y: coordinates.y,
+
+                    button: "left",
+
+                    clicks: 1
+
+                });
+
+            }
+
+        );
+
+
+        // =====================================================
+        // DOUBLE CLICK
+        // =====================================================
+
+        screenCanvas.addEventListener(
+
+            "dblclick",
+
+            (event) => {
+
+                event.preventDefault();
+
+
+                const coordinates =
+                    getRemoteCoordinates(event);
+
+
+                if (!coordinates) {
+
+                    return;
+
+                }
+
+
+                sendCommand({
+
+                    type: "mouse_click",
+
+                    x: coordinates.x,
+
+                    y: coordinates.y,
+
+                    button: "left",
+
+                    clicks: 2
+
+                });
+
+            }
+
+        );
+
+
+        // =====================================================
+        // RIGHT CLICK
+        // =====================================================
+
+        screenCanvas.addEventListener(
+
+            "contextmenu",
+
+            (event) => {
+
+                event.preventDefault();
+
+
+                const coordinates =
+                    getRemoteCoordinates(event);
+
+
+                if (!coordinates) {
+
+                    return;
+
+                }
+
+
+                sendCommand({
+
+                    type: "mouse_click",
+
+                    x: coordinates.x,
+
+                    y: coordinates.y,
+
+                    button: "right",
+
+                    clicks: 1
+
+                });
+
+            }
+
+        );
+
+
+        // =====================================================
+        // SCROLL
+        // =====================================================
+
+        screenCanvas.addEventListener(
+
+            "wheel",
+
+            (event) => {
+
+                event.preventDefault();
+
+
+                const amount =
+                    event.deltaY > 0
+                        ? -3
+                        : 3;
+
+
+                sendCommand({
+
+                    type: "scroll",
+
+                    amount: amount
+
+                });
+
+            },
+
+            {
+                passive: false
+            }
+
+        );
+
+
+        // =====================================================
+        // KEYBOARD
+        // =====================================================
+
+        document.addEventListener(
+
+            "keydown",
+
+            (event) => {
+
+                /*
+                 * Do not interfere with browser shortcuts
+                 * unnecessarily.
+                 */
+
+                if (
+                    event.ctrlKey ||
+                    event.altKey ||
+                    event.metaKey
+                ) {
+
+                    return;
+
+                }
+
+
+                event.preventDefault();
+
+
+                if (event.repeat) {
+
+                    return;
+
+                }
+
+
+                sendCommand({
+
+                    type: "key_press",
+
+                    key:
+                        event.key.toLowerCase()
+
+                });
+
+            }
+
+        );
+
+
+        // =====================================================
+        // TEST TYPING
+        // =====================================================
+
+        window.sendText =
+            function(text) {
+
+                sendCommand({
+
+                    type: "type_text",
+
+                    text: text
+
+                });
+
+            };
+
+
+        // =====================================================
+        // TEST HOTKEY
+        // =====================================================
+
+        window.sendHotkey =
+            function(keys) {
+
+                sendCommand({
+
+                    type: "hotkey",
+
+                    keys: keys
+
+                });
+
+            };
+
+
+        // =====================================================
+        // SYSTEM READY
+        // =====================================================
+
+        console.log(
+            "[VIEWER] TechPilot Remote Viewer loaded"
+        );
 
     </script>
 
 </body>
+
 </html>
