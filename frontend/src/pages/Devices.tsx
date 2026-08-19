@@ -1,13 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import CardHeader from "../components/CardHeader";
 import ScrollReveal from "../components/ScrollReveal";
 import {
-  devices,
   type DeviceStatus,
   type RiskLevel,
 } from "../data/mockData";
-
+import {
+  getAgents,
+  type Agent,
+} from "../api";
 type DevicesProps = {
   searchQuery?: string;
   onDeviceSelect?: (deviceId: string) => void;
@@ -21,43 +23,67 @@ function Devices({
 }: DevicesProps) {
   const [filter, setFilter] =
     useState<Filter>("All");
+    const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const filteredDevices = useMemo(() => {
-    const query =
-      searchQuery.toLowerCase().trim();
+  useEffect(() => {
+    let cancelled = false;
 
-    return devices.filter((device) => {
-      const matchesFilter =
-        filter === "All" ||
-        device.status === filter;
+    async function loadAgents() {
+      try {
+        setLoading(true);
+        setError(null);
 
-      const matchesSearch =
-        !query ||
-        `${device.name} ${device.user} ${device.os} ${device.id} ${device.cpuModel} ${device.ipAddress} ${device.hostname}`
-          .toLowerCase()
-          .includes(query);
+        const data = await getAgents();
 
-      return (
-        matchesFilter &&
-        matchesSearch
-      );
-    });
-  }, [filter, searchQuery]);
+        if (!cancelled) {
+          setAgents(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load agents",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
 
-  const healthyCount = devices.filter(
-    (device) =>
-      device.status === "Healthy",
-  ).length;
+    loadAgents();
 
-  const warningCount = devices.filter(
-    (device) =>
-      device.status === "Warning",
-  ).length;
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+ const filteredDevices = useMemo(() => {
+  const query = searchQuery.trim().toLowerCase();
 
-  const offlineCount = devices.filter(
-    (device) =>
-      device.status === "Offline",
-  ).length;
+  if (!query) {
+    return agents;
+  }
+
+  return agents.filter((agent) => {
+    return (
+      agent.hostname.toLowerCase().includes(query) ||
+      agent.device_id.toLowerCase().includes(query) ||
+      agent.operating_system.toLowerCase().includes(query) ||
+      agent.os_version.toLowerCase().includes(query)
+    );
+  });
+}, [agents, searchQuery]);
+
+// The current /agents endpoint confirms registration,
+// but does not yet expose live health/status.
+// For this stage, registered agents are counted as available.
+const healthyCount = agents.length;
+const warningCount = 0;
+const offlineCount = 0;
 
   return (
     <ScrollReveal
@@ -81,16 +107,13 @@ function Devices({
             DEVICE COMMAND HEADER
             =================================================== */}
 
-        <div className="devices-command-header">
-          <CardHeader
-            title="Managed Devices"
-            subtitle={`${filteredDevices.length} endpoint${
-              filteredDevices.length === 1
-                ? ""
-                : "s"
-            } shown`}
-            action="+ Add device"
-          />
+        <CardHeader
+  title="Managed Devices"
+  subtitle={`${agents.length} registered endpoint${
+    agents.length === 1 ? "" : "s"
+  }`}
+  action="+ Add device"
+/>
 
           <div className="devices-command-status">
             <span className="devices-command-live">
@@ -102,7 +125,7 @@ function Devices({
               STREAM ACTIVE
             </span>
           </div>
-        </div>
+
 
         {/* ===================================================
             DEVICE SUMMARY
@@ -119,10 +142,10 @@ function Devices({
           }}
         >
           <DeviceSummary
-            label="TOTAL"
-            value={devices.length}
-            tone="blue"
-          />
+  label="TOTAL"
+  value={agents.length}
+  tone="blue"
+/>
 
           <DeviceSummary
             label="HEALTHY"
@@ -143,358 +166,219 @@ function Devices({
           />
         </div>
 
-        {/* ===================================================
-            FILTER TOOLBAR
-            =================================================== */}
+{/* ===================================================
+    REAL TECHPILOT AGENTS
+    =================================================== */}
 
-        <div
-          className="table-toolbar futuristic-table-toolbar devices-3d-section"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "28px",
-            margin: "0 0 22px",
-            padding: "14px 2px",
-            minHeight: "58px",
-          }}
-        >
-          <div
-            className="filter-group"
+<div
+  className="devices-3d-section"
+  style={{
+    marginBottom: "24px",
+    padding: "20px",
+    borderRadius: "14px",
+    border: "1px solid rgba(148, 163, 184, 0.12)",
+    background: "rgba(15, 23, 42, 0.35)",
+  }}
+>
+  <div
+    style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: "16px",
+    }}
+  >
+    <div>
+      <strong
+        style={{
+          display: "block",
+          fontSize: "14px",
+          letterSpacing: "0.08em",
+        }}
+      >
+        CONNECTED TECHPILOT AGENTS
+      </strong>
+
+      <span
+        style={{
+          display: "block",
+          marginTop: "5px",
+          fontSize: "12px",
+          opacity: 0.6,
+        }}
+      >
+        Live inventory received from the TechPilot API
+      </span>
+    </div>
+
+    <span
+      style={{
+        fontSize: "12px",
+        fontWeight: 700,
+        letterSpacing: "0.08em",
+      }}
+    >
+      {loading
+        ? "SYNCING..."
+        : error
+          ? "API ERROR"
+          : `${agents.length} AGENTS`}
+    </span>
+  </div>
+
+  {error && (
+    <div
+      style={{
+        padding: "12px 14px",
+        borderRadius: "10px",
+        background: "rgba(239, 68, 68, 0.08)",
+        color: "#fca5a5",
+        fontSize: "13px",
+      }}
+    >
+      {error}
+    </div>
+  )}
+
+  {!loading && !error && agents.length === 0 && (
+    <div
+      style={{
+        padding: "20px 0",
+        opacity: 0.6,
+        fontSize: "13px",
+      }}
+    >
+      No TechPilot agents are currently registered.
+    </div>
+  )}
+
+  {!loading &&
+    !error &&
+    filteredDevices.map((agent) => (
+  <div
+    key={agent.id}
+    onClick={() => onDeviceSelect?.(agent.device_id)}
+    role="button"
+    tabIndex={0}
+    onKeyDown={(event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        onDeviceSelect?.(agent.device_id);
+      }
+    }}
+      >
+        <div>
+          <strong
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              flexWrap: "wrap",
+              display: "block",
+              fontSize: "14px",
             }}
           >
-            {(
-              [
-                "All",
-                "Healthy",
-                "Warning",
-                "Offline",
-              ] as Filter[]
-            ).map((item) => (
-              <button
-                key={item}
-                type="button"
-                className={`filter-chip futuristic-filter-chip ${
-                  filter === item
-                    ? "active"
-                    : ""
-                }`}
-                onClick={() =>
-                  setFilter(item)
-                }
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "8px",
-                  minWidth: "72px",
-                  minHeight: "38px",
-                  padding: "8px 13px",
-                  boxSizing: "border-box",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <span
-                  className={`filter-dot ${
-                    item.toLowerCase()
-                  }`}
-                />
+            {agent.hostname}
+          </strong>
 
-                <span
-                  style={{
-                    lineHeight: 1,
-                    fontWeight: 600,
-                  }}
-                >
-                  {item}
-                </span>
-
-                <small
-                  style={{
-                    margin: 0,
-                    lineHeight: 1,
-                    fontWeight: 700,
-                  }}
-                >
-                  {item === "All"
-                    ? devices.length
-                    : item === "Healthy"
-                      ? healthyCount
-                      : item === "Warning"
-                        ? warningCount
-                        : offlineCount}
-                </small>
-              </button>
-            ))}
-          </div>
-
-          <div
-            className="devices-toolbar-readout"
+          <span
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "flex-end",
-              gap: "12px",
-              flex: "0 0 auto",
-              whiteSpace: "nowrap",
-              paddingLeft: "12px",
+              display: "block",
+              marginTop: "4px",
+              fontSize: "11px",
+              opacity: 0.55,
+              fontFamily: "monospace",
             }}
           >
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                margin: 0,
-                lineHeight: 1.2,
-              }}
-            >
-              <i />
-              <span style={{ letterSpacing: "0.08em" }}>
-                MONITORING
-              </span>
-            </span>
-
-            <strong
-              style={{
-                margin: 0,
-                fontSize: "18px",
-                lineHeight: 1,
-                letterSpacing: "0.02em",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {filteredDevices.length
-                .toString()
-                .padStart(2, "0")}
-              {" / "}
-              {devices.length
-                .toString()
-                .padStart(2, "0")}
-            </strong>
-          </div>
+            {agent.device_id}
+          </span>
         </div>
 
-        {/* ===================================================
-            DEVICE TABLE
-            =================================================== */}
+        <div>
+          <span
+            style={{
+              display: "block",
+              fontSize: "11px",
+              opacity: 0.55,
+              letterSpacing: "0.06em",
+            }}
+          >
+            OPERATING SYSTEM
+          </span>
 
-        <div className="table-wrap futuristic-table-wrap devices-3d-section">
-          <table className="futuristic-device-table">
-            <thead>
-              <tr>
-                <th>Device</th>
-                <th>User</th>
-                <th>OS</th>
-                <th>CPU</th>
-                <th>RAM</th>
-                <th>Disk</th>
-                <th>Status</th>
-                <th>Risk</th>
-                <th>Last Seen</th>
-              </tr>
-            </thead>
+          <strong
+            style={{
+              display: "block",
+              marginTop: "4px",
+              fontSize: "13px",
+            }}
+          >
+            {agent.operating_system}
+          </strong>
 
-            <tbody>
-              {filteredDevices.map(
-                (device, index) => (
-                  <tr
-                    key={device.id}
-                    className="device-table-row"
-                    style={{
-                      "--row-index": index,
-                    } as React.CSSProperties}
-                  >
-                    {/* DEVICE */}
-
-                    <td>
-                      <div className="device-cell futuristic-device-cell">
-                        <div className="device-icon futuristic-device-icon">
-                          <span>▣</span>
-                          <i />
-                        </div>
-
-                        <div className="device-cell-copy">
-                          <button
-                            type="button"
-                            className="device-name-button futuristic-device-name"
-                            onClick={() =>
-                              onDeviceSelect?.(
-                                device.id,
-                              )
-                            }
-                          >
-                            {device.name}
-                          </button>
-
-                          <span>
-                            {device.id}
-                          </span>
-
-                          <small>
-                            {device.hostname}
-                          </small>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* USER */}
-
-                    <td>
-                      <div className="device-user-cell">
-                        <strong>
-                          {device.user}
-                        </strong>
-
-                        <span>
-                          ASSIGNED
-                        </span>
-                      </div>
-                    </td>
-
-                    {/* OPERATING SYSTEM */}
-
-                    <td>
-                      <div className="device-os-cell">
-                        <strong>
-                          {device.os}
-                        </strong>
-
-                        <span>
-                          {device.osVersion}
-                        </span>
-                      </div>
-                    </td>
-
-                    {/* CPU */}
-
-                    <td>
-                      <TelemetryCell
-                        value={`${device.cpuUsage}%`}
-                        label="CPU LOAD"
-                        detail={`${device.cpuCores} cores · ${device.cpuFrequency}`}
-                        subdetail={
-                          device.cpuModel
-                        }
-                        percentage={
-                          device.cpuUsage
-                        }
-                        tone={getTelemetryTone(
-                          device.cpuUsage,
-                        )}
-                      />
-                    </td>
-
-                    {/* RAM */}
-
-                    <td>
-                      <TelemetryCell
-                        value={`${device.ramUsage}%`}
-                        label="RAM LOAD"
-                        detail={`${device.ramUsed} / ${device.ramTotal}`}
-                        subdetail={`${device.ramAvailable} available`}
-                        percentage={
-                          device.ramUsage
-                        }
-                        tone={getTelemetryTone(
-                          device.ramUsage,
-                        )}
-                      />
-                    </td>
-
-                    {/* DISK */}
-
-                    <td>
-                      <TelemetryCell
-                        value={`${device.diskUsage}%`}
-                        label="DISK LOAD"
-                        detail={`${device.diskUsed} / ${device.diskTotal}`}
-                        subdetail={`${device.diskAvailable} available`}
-                        percentage={
-                          device.diskUsage
-                        }
-                        tone={getTelemetryTone(
-                          device.diskUsage,
-                        )}
-                      />
-                    </td>
-
-                    {/* STATUS */}
-
-                    <td>
-                      <StatusBadge
-                        value={
-                          device.status
-                        }
-                      />
-                    </td>
-
-                    {/* RISK */}
-
-                    <td>
-                      <RiskBadge
-                        value={device.risk}
-                      />
-                    </td>
-
-                    {/* LAST SEEN */}
-
-                    <td>
-                      <div className="last-seen-cell">
-                        <span
-                          className={`last-seen-dot ${
-                            device.status.toLowerCase()
-                          }`}
-                        />
-
-                        <span>
-                          {device.lastSeen}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                ),
-              )}
-            </tbody>
-          </table>
-
-          {filteredDevices.length ===
-            0 && (
-            <div className="empty-state futuristic-empty-state">
-              <div className="empty-icon">
-                ⌕
-              </div>
-
-              <strong>
-                No devices found
-              </strong>
-
-              <span>
-                Try changing the filter or
-                search query.
-              </span>
-
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => {
-                  setFilter("All");
-                }}
-              >
-                Reset filters
-              </button>
-            </div>
-          )}
+          <span
+            style={{
+              display: "block",
+              marginTop: "2px",
+              fontSize: "11px",
+              opacity: 0.6,
+            }}
+          >
+            {agent.os_version}
+          </span>
         </div>
 
-        {/* ===================================================
-            TABLE FOOTER
-            =================================================== */}
+        <div>
+          <span
+            style={{
+              display: "block",
+              fontSize: "11px",
+              opacity: 0.55,
+              letterSpacing: "0.06em",
+            }}
+          >
+            AGENT VERSION
+          </span>
+
+          <strong
+            style={{
+              display: "block",
+              marginTop: "4px",
+              fontSize: "13px",
+            }}
+          >
+            v{agent.agent_version}
+          </strong>
+        </div>
+
+        <div>
+          <span
+            style={{
+              display: "block",
+              fontSize: "11px",
+              opacity: 0.55,
+              letterSpacing: "0.06em",
+            }}
+          >
+            REGISTERED
+          </span>
+
+          <span
+            style={{
+              display: "block",
+              marginTop: "4px",
+              fontSize: "11px",
+              opacity: 0.75,
+            }}
+          >
+            {new Date(
+              agent.registered_at,
+            ).toLocaleString()}
+          </span>
+        </div>
+      </div>
+    ))}
+</div>
+        
+
+{/* ===================================================
+    TABLE FOOTER
+=================================================== */}
 
         <div
           className="devices-table-footer"
@@ -549,12 +433,12 @@ function Devices({
             }}
           >
             Showing
-            <strong style={{ fontWeight: 700 }}>
+            <strong>
               {filteredDevices.length}
             </strong>
             of
-            <strong style={{ fontWeight: 700 }}>
-              {devices.length}
+            <strong>
+              {agents.length}
             </strong>
             endpoints
           </span>
