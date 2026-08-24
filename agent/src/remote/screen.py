@@ -29,11 +29,15 @@ class ScreenCapture:
             self.sct.monitors[self.monitor]
         )
 
-        image = Image.frombytes(
-            "RGB",
-            screenshot.size,
-            screenshot.rgb
-        )
+        image = Image.frombuffer(
+    "RGB",
+    screenshot.size,
+    screenshot.bgra,
+    "raw",
+    "BGRX",
+    0,
+    1,
+)
 
         buffer = io.BytesIO()
 

@@ -1,24 +1,13 @@
 import {
   useEffect,
-  useRef,
   useState,
-} from "react";
-
-import type {
-  KeyboardEvent,
-  MouseEvent,
-  WheelEvent,
 } from "react";
 
 import ScrollReveal from "../components/ScrollReveal";
 
 import {
   createRemoteSession,
-  disconnectRemoteSession,
   getAgents,
-  getPendingRemoteSession,
-  getRemoteControlUrl,
-  getRemoteStreamUrl,
   type Agent,
 } from "../api";
 
@@ -33,66 +22,12 @@ type DeviceDetailsProps = {
 };
 
 
-type RemoteStatus =
-  | "idle"
-  | "connecting"
-  | "live"
-  | "error";
-
-
 type ResourceType =
   | "cpu"
   | "ram"
   | "disk"
   | null;
 
-
-type RemoteCommand =
-  | {
-      type: "mouse_move";
-      x: number;
-      y: number;
-    }
-  | {
-      type: "mouse_click";
-      x: number;
-      y: number;
-      button:
-        | "left"
-        | "right"
-        | "middle";
-      clicks: number;
-    }
-  | {
-      type: "mouse_down";
-      button:
-        | "left"
-        | "right"
-        | "middle";
-    }
-  | {
-      type: "mouse_up";
-      button:
-        | "left"
-        | "right"
-        | "middle";
-    }
-  | {
-      type: "scroll";
-      amount: number;
-    }
-  | {
-      type: "key_press";
-      key: string;
-    }
-  | {
-      type: "type_text";
-      text: string;
-    }
-  | {
-      type: "hotkey";
-      keys: string[];
-    };
 
 
 /* =========================================================
@@ -167,7 +102,6 @@ function DeviceDetails({
   const [deviceLoading, setDeviceLoading] =
     useState(true);
 
-
   /* =======================================================
      RESOURCE STATE
      ======================================================= */
@@ -178,48 +112,7 @@ function DeviceDetails({
   ] = useState<ResourceType>(null);
 
 
-  /* =======================================================
-     REMOTE SESSION STATE
-     ======================================================= */
 
-  const [
-    remoteSessionId,
-    setRemoteSessionId,
-  ] = useState<number | null>(null);
-
-  const [
-    remoteStatus,
-    setRemoteStatus,
-  ] = useState<RemoteStatus>("idle");
-
-  const [
-    remoteFrame,
-    setRemoteFrame,
-  ] = useState<string | null>(null);
-
-  const [
-    remoteError,
-    setRemoteError,
-  ] = useState<string | null>(null);
-
-  const [
-    recoveringSession,
-    setRecoveringSession,
-  ] = useState(true);
-
-
-  /* =======================================================
-     WEBSOCKET REFERENCES
-     ======================================================= */
-
-  const streamSocketRef =
-    useRef<WebSocket | null>(null);
-
-  const controlSocketRef =
-    useRef<WebSocket | null>(null);
-
-  const remoteScreenRef =
-    useRef<HTMLDivElement | null>(null);
 
 
   /* =======================================================
@@ -299,103 +192,6 @@ function DeviceDetails({
   }, [deviceId]);
 
 
-  /* =======================================================
-     RECOVER EXISTING REMOTE SESSION
-     
-     IMPORTANT:
-     This runs whenever the device page is opened.
-     
-     If the browser was refreshed while a session was
-     already active, we recover that session instead of
-     creating a new one.
-     ======================================================= */
-
-  useEffect(() => {
-
-    let cancelled = false;
-
-    async function recoverRemoteSession() {
-
-      try {
-
-        setRecoveringSession(true);
-
-        console.log(
-          "[REMOTE] Checking for existing session:",
-          deviceId,
-        );
-
-        const existingSession =
-          await getPendingRemoteSession(
-            deviceId,
-          );
-
-        console.log(
-          "[REMOTE] Existing session response:",
-          existingSession,
-        );
-
-        if (
-          cancelled
-        ) {
-          return;
-        }
-
-        if (
-          existingSession.pending &&
-          existingSession.session_id
-        ) {
-
-          console.log(
-            `[REMOTE] Recovering session #${existingSession.session_id}`,
-          );
-
-          setRemoteSessionId(
-            existingSession.session_id,
-          );
-
-          setRemoteError(null);
-
-          setRemoteStatus(
-            "connecting",
-          );
-
-        } else {
-
-          console.log(
-            "[REMOTE] No existing remote session.",
-          );
-
-          setRemoteSessionId(null);
-
-          setRemoteStatus("idle");
-
-        }
-
-      } catch (error) {
-
-        console.error(
-          "[REMOTE] Failed to recover existing session:",
-          error,
-        );
-
-      } finally {
-
-        if (!cancelled) {
-
-          setRecoveringSession(false);
-        }
-      }
-    }
-
-    recoverRemoteSession();
-
-    return () => {
-
-      cancelled = true;
-    };
-
-  }, [deviceId]);
 
 
   /* =======================================================
@@ -406,375 +202,18 @@ function DeviceDetails({
     device ? 100 : 0;
 
 
-  /* =======================================================
-     SEND REMOTE COMMAND
-     ======================================================= */
-
-  const sendRemoteCommand = (
-    command: RemoteCommand,
-  ) => {
-
-    const socket =
-      controlSocketRef.current;
-
-    if (
-      !socket ||
-      socket.readyState !==
-        WebSocket.OPEN
-    ) {
-
-      console.warn(
-        "[CONTROL] Control WebSocket is not connected.",
-      );
-
-      return;
-    }
-
-    try {
-
-      socket.send(
-        JSON.stringify(command),
-      );
-
-    } catch (error) {
-
-      console.error(
-        "[CONTROL] Failed to send command:",
-        error,
-      );
-    }
-  };
-
 
   /* =======================================================
-     REMOTE COORDINATE CONVERSION
-     ======================================================= */
-
-  const getRemoteCoordinates = (
-    event:
-      | MouseEvent<HTMLImageElement>
-      | MouseEvent<HTMLDivElement>,
-  ) => {
-
-    const image =
-      event.currentTarget instanceof
-      HTMLImageElement
-        ? event.currentTarget
-        : event.currentTarget.querySelector(
-            ".remote-screen-image",
-          ) as HTMLImageElement | null;
-
-    if (!image) {
-      return null;
-    }
-
-    const rect =
-      image.getBoundingClientRect();
-
-    const imageWidth =
-      image.naturalWidth;
-
-    const imageHeight =
-      image.naturalHeight;
-
-    if (
-      !imageWidth ||
-      !imageHeight ||
-      !rect.width ||
-      !rect.height
-    ) {
-
-      return null;
-    }
-
-    const scaleX =
-      imageWidth / rect.width;
-
-    const scaleY =
-      imageHeight / rect.height;
-
-    let x =
-      Math.round(
-        (event.clientX -
-          rect.left) *
-          scaleX,
-      );
-
-    let y =
-      Math.round(
-        (event.clientY -
-          rect.top) *
-          scaleY,
-      );
-
-    x = Math.max(
-      0,
-      Math.min(
-        x,
-        imageWidth - 1,
-      ),
-    );
-
-    y = Math.max(
-      0,
-      Math.min(
-        y,
-        imageHeight - 1,
-      ),
-    );
-
-    return {
-      x,
-      y,
-    };
-  };
-
-
-  /* =======================================================
-     MOUSE MOVE
-     ======================================================= */
-
-  const handleRemoteMouseMove = (
-    event: MouseEvent<HTMLImageElement>,
-  ) => {
-
-    if (
-      remoteStatus !== "live"
-    ) {
-      return;
-    }
-
-    const coordinates =
-      getRemoteCoordinates(event);
-
-    if (!coordinates) {
-      return;
-    }
-
-    sendRemoteCommand({
-      type: "mouse_move",
-      x: coordinates.x,
-      y: coordinates.y,
-    });
-  };
-
-
-  /* =======================================================
-     LEFT CLICK
-     ======================================================= */
-
-  const handleRemoteClick = (
-    event: MouseEvent<HTMLImageElement>,
-  ) => {
-
-    event.preventDefault();
-
-    if (
-      remoteStatus !== "live"
-    ) {
-      return;
-    }
-
-    const coordinates =
-      getRemoteCoordinates(event);
-
-    if (!coordinates) {
-      return;
-    }
-
-    sendRemoteCommand({
-      type: "mouse_click",
-      x: coordinates.x,
-      y: coordinates.y,
-      button: "left",
-      clicks: 1,
-    });
-
-    remoteScreenRef.current?.focus();
-  };
-
-
-  /* =======================================================
-     DOUBLE CLICK
-     ======================================================= */
-
-  const handleRemoteDoubleClick = (
-    event: MouseEvent<HTMLImageElement>,
-  ) => {
-
-    event.preventDefault();
-
-    if (
-      remoteStatus !== "live"
-    ) {
-      return;
-    }
-
-    const coordinates =
-      getRemoteCoordinates(event);
-
-    if (!coordinates) {
-      return;
-    }
-
-    sendRemoteCommand({
-      type: "mouse_click",
-      x: coordinates.x,
-      y: coordinates.y,
-      button: "left",
-      clicks: 2,
-    });
-
-    remoteScreenRef.current?.focus();
-  };
-
-
-  /* =======================================================
-     RIGHT CLICK
-     ======================================================= */
-
-  const handleRemoteContextMenu = (
-    event: MouseEvent<HTMLImageElement>,
-  ) => {
-
-    event.preventDefault();
-
-    if (
-      remoteStatus !== "live"
-    ) {
-      return;
-    }
-
-    const coordinates =
-      getRemoteCoordinates(event);
-
-    if (!coordinates) {
-      return;
-    }
-
-    sendRemoteCommand({
-      type: "mouse_click",
-      x: coordinates.x,
-      y: coordinates.y,
-      button: "right",
-      clicks: 1,
-    });
-
-    remoteScreenRef.current?.focus();
-  };
-
-
-  /* =======================================================
-     MOUSE WHEEL
-     ======================================================= */
-
-  const handleRemoteWheel = (
-    event: WheelEvent<HTMLDivElement>,
-  ) => {
-
-    if (
-      remoteStatus !== "live"
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-
-    const amount =
-      event.deltaY > 0
-        ? -3
-        : 3;
-
-    sendRemoteCommand({
-      type: "scroll",
-      amount,
-    });
-  };
-
-
-  /* =======================================================
-     KEYBOARD CONTROL
-     ======================================================= */
-
-  const handleRemoteKeyDown = (
-    event: KeyboardEvent<HTMLDivElement>,
-  ) => {
-
-    if (
-      remoteStatus !== "live"
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-
-    if (event.repeat) {
-      return;
-    }
-
-    const modifierKeys: string[] =
-      [];
-
-    if (event.ctrlKey) {
-      modifierKeys.push("ctrl");
-    }
-
-    if (event.altKey) {
-      modifierKeys.push("alt");
-    }
-
-    if (event.shiftKey) {
-      modifierKeys.push("shift");
-    }
-
-    if (event.metaKey) {
-      modifierKeys.push("win");
-    }
-
-    if (
-      modifierKeys.length > 0
-    ) {
-
-      sendRemoteCommand({
-        type: "hotkey",
-        keys: [
-          ...modifierKeys,
-          event.key.toLowerCase(),
-        ],
-      });
-
-      return;
-    }
-
-    sendRemoteCommand({
-      type: "key_press",
-      key: event.key.toLowerCase(),
-    });
-  };
-
-
-  /* =======================================================
-     START REMOTE VIEW
+     START REMOTE SESSION
      ======================================================= */
 
   const startRemoteView = async () => {
 
     if (!device) {
-
-      setRemoteStatus("error");
-
-      setRemoteError(
-        "No active TechPilot agent is associated with this device.",
-      );
-
       return;
     }
 
     try {
-
-      setRemoteStatus("connecting");
-
-      setRemoteError(null);
 
       console.log(
         "[REMOTE] Creating session for:",
@@ -791,8 +230,20 @@ function DeviceDetails({
         session,
       );
 
-      setRemoteSessionId(
-        session.session_id,
+      const remoteUrl =
+        `/?remote_session=${encodeURIComponent(
+          String(session.session_id),
+        )}`;
+
+      /*
+       * The remote viewer is deliberately kept
+       * outside DeviceDetails. Open it in a
+       * separate browser tab.
+       */
+      window.open(
+        remoteUrl,
+        "_blank",
+        "noopener,noreferrer",
       );
 
     } catch (error) {
@@ -802,387 +253,13 @@ function DeviceDetails({
         error,
       );
 
-      /*
-       * If another session already exists,
-       * immediately try to recover it.
-       */
-
-      try {
-
-        const existingSession =
-          await getPendingRemoteSession(
-            device.device_id,
-          );
-
-        if (
-          existingSession.pending &&
-          existingSession.session_id
-        ) {
-
-          console.log(
-            `[REMOTE] Existing session recovered after start failure: #${existingSession.session_id}`,
-          );
-
-          setRemoteSessionId(
-            existingSession.session_id,
-          );
-
-          setRemoteStatus(
-            "connecting",
-          );
-
-          setRemoteError(null);
-
-          return;
-        }
-
-      } catch (
-        recoveryError
-      ) {
-
-        console.error(
-          "[REMOTE] Session recovery after start failure failed:",
-          recoveryError,
-        );
-      }
-
-      setRemoteStatus("error");
-
-      setRemoteError(
+      window.alert(
         error instanceof Error
           ? error.message
           : "Failed to start remote session.",
       );
     }
   };
-
-
-  /* =======================================================
-     STOP REMOTE VIEW
-     ======================================================= */
-
-  const stopRemoteView = async () => {
-
-    const sessionId =
-      remoteSessionId;
-
-    if (!sessionId) {
-      return;
-    }
-
-    try {
-
-      await disconnectRemoteSession(
-        sessionId,
-      );
-
-    } catch (error) {
-
-      console.error(
-        "[REMOTE] Failed to disconnect:",
-        error,
-      );
-
-    } finally {
-
-      if (
-        streamSocketRef.current
-      ) {
-
-        streamSocketRef.current.close();
-
-        streamSocketRef.current =
-          null;
-      }
-
-      if (
-        controlSocketRef.current
-      ) {
-
-        controlSocketRef.current.close();
-
-        controlSocketRef.current =
-          null;
-      }
-
-      setRemoteSessionId(null);
-
-      setRemoteStatus("idle");
-
-      setRemoteError(null);
-
-      setRemoteFrame(
-        (previous) => {
-
-          if (previous) {
-
-            URL.revokeObjectURL(
-              previous,
-            );
-          }
-
-          return null;
-        },
-      );
-    }
-  };
-
-
-  /* =======================================================
-     SCREEN STREAM WEBSOCKET
-     ======================================================= */
-
-  useEffect(() => {
-
-    if (!remoteSessionId) {
-      return;
-    }
-
-    let disposed = false;
-
-    console.log(
-      `[REMOTE] Opening viewer stream for session ${remoteSessionId}`,
-    );
-
-    const websocket =
-      new WebSocket(
-        getRemoteStreamUrl(
-          remoteSessionId,
-        ),
-      );
-
-    streamSocketRef.current =
-      websocket;
-
-    websocket.binaryType = "blob";
-
-    websocket.onopen = () => {
-
-      console.log(
-        `[REMOTE] Viewer connected for session ${remoteSessionId}`,
-      );
-
-      if (!disposed) {
-
-        setRemoteStatus(
-          "connecting",
-        );
-      }
-    };
-
-    websocket.onmessage = (
-      event,
-    ) => {
-
-      if (
-        !(event.data instanceof Blob)
-      ) {
-        return;
-      }
-
-      const imageUrl =
-        URL.createObjectURL(
-          event.data,
-        );
-
-      setRemoteFrame(
-        (previous) => {
-
-          if (previous) {
-
-            URL.revokeObjectURL(
-              previous,
-            );
-          }
-
-          return imageUrl;
-        },
-      );
-
-      if (!disposed) {
-
-        setRemoteStatus("live");
-
-        setRemoteError(null);
-      }
-    };
-
-    websocket.onerror = (
-      event,
-    ) => {
-
-      console.error(
-        "[REMOTE] Viewer WebSocket error:",
-        event,
-      );
-
-      if (!disposed) {
-
-        setRemoteStatus("error");
-
-        setRemoteError(
-          "Remote screen connection failed.",
-        );
-      }
-    };
-
-    websocket.onclose = () => {
-
-      console.log(
-        `[REMOTE] Viewer disconnected for session ${remoteSessionId}`,
-      );
-
-      if (!disposed) {
-
-        setRemoteStatus("error");
-
-        setRemoteError(
-          "Remote screen connection closed.",
-        );
-      }
-    };
-
-    return () => {
-
-      disposed = true;
-
-      websocket.close();
-
-      if (
-        streamSocketRef.current ===
-        websocket
-      ) {
-
-        streamSocketRef.current =
-          null;
-      }
-    };
-
-  }, [remoteSessionId]);
-
-
-  /* =======================================================
-     CONTROL WEBSOCKET
-     ======================================================= */
-
-  useEffect(() => {
-
-    if (!remoteSessionId) {
-      return;
-    }
-
-    const controlUrl =
-      getRemoteControlUrl(
-        remoteSessionId,
-      );
-
-    console.log(
-      `[CONTROL] Connecting viewer control to ${controlUrl}`,
-    );
-
-    const websocket =
-      new WebSocket(
-        controlUrl,
-      );
-
-    controlSocketRef.current =
-      websocket;
-
-    websocket.onopen = () => {
-
-      console.log(
-        `[CONTROL] Viewer control connected for session ${remoteSessionId}`,
-      );
-    };
-
-    websocket.onerror = (
-      event,
-    ) => {
-
-      console.error(
-        "[CONTROL] Viewer control WebSocket error:",
-        event,
-      );
-
-      /*
-       * Do not destroy the screen session
-       * just because the control socket
-       * has a temporary problem.
-       */
-
-      setRemoteError(
-        "Remote screen is live, but the control channel is unavailable.",
-      );
-    };
-
-    websocket.onclose = () => {
-
-      console.log(
-        `[CONTROL] Viewer control disconnected for session ${remoteSessionId}`,
-      );
-    };
-
-    return () => {
-
-      websocket.close();
-
-      if (
-        controlSocketRef.current ===
-        websocket
-      ) {
-
-        controlSocketRef.current =
-          null;
-      }
-    };
-
-  }, [remoteSessionId]);
-
-
-  /* =======================================================
-     CLEANUP WHEN LEAVING PAGE
-     ======================================================= */
-
-  useEffect(() => {
-
-    return () => {
-
-      if (
-        streamSocketRef.current
-      ) {
-
-        streamSocketRef.current.close();
-
-        streamSocketRef.current =
-          null;
-      }
-
-      if (
-        controlSocketRef.current
-      ) {
-
-        controlSocketRef.current.close();
-
-        controlSocketRef.current =
-          null;
-      }
-
-      setRemoteFrame(
-        (previous) => {
-
-          if (previous) {
-
-            URL.revokeObjectURL(
-              previous,
-            );
-          }
-
-          return null;
-        },
-      );
-    };
-
-  }, []);
 
 
   /* =======================================================
@@ -1360,15 +437,14 @@ function DeviceDetails({
       </ScrollReveal>
 
 
+
       {/* ===================================================
-          REMOTE SCREEN
+          REMOTE CONTROL
           =================================================== */}
 
       <ScrollReveal delay={80}>
 
-        <section
-          className="glass-card remote-screen-card"
-        >
+        <section className="glass-card remote-screen-card">
 
           <div className="remote-screen-header">
 
@@ -1386,203 +462,25 @@ function DeviceDetails({
                 Establish a secure remote
                 viewing and control session
                 with this TechPilot endpoint.
+                The remote viewer opens in a
+                separate browser tab.
               </p>
 
             </div>
 
-
             <div className="remote-controls">
 
-              {remoteSessionId ? (
-
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={
-                    stopRemoteView
-                  }
-                >
-                  ■ End Session
-                </button>
-
-              ) : (
-
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={
-                    startRemoteView
-                  }
-                  disabled={
-                    remoteStatus ===
-                      "connecting" ||
-                    recoveringSession
-                  }
-                >
-                  {recoveringSession
-                    ? "◌ Checking Session..."
-                    : remoteStatus ===
-                      "connecting"
-                    ? "◌ Connecting..."
-                    : "▶ Start Remote View"}
-                </button>
-
-              )}
-
-            </div>
-
-          </div>
-
-
-          {remoteSessionId && (
-            <div className="remote-session-status">
-
-              <span>
-                SESSION
-              </span>
-
-              <strong>
-                #{remoteSessionId}
-              </strong>
-
-              <span
-                className={
-                  remoteStatus === "live"
-                    ? "live"
-                    : ""
-                }
+              <button
+                type="button"
+                className="primary-button"
+                onClick={startRemoteView}
               >
-                ●{" "}
-                {remoteStatus ===
-                "live"
-                  ? "STREAM ACTIVE"
-                  : "CONNECTING"}
-              </span>
+                ▶ Start Remote Session
+              </button>
 
             </div>
-          )}
-
-
-          <div
-            ref={
-              remoteScreenRef
-            }
-            className="remote-screen-frame"
-            tabIndex={0}
-            onWheel={
-              handleRemoteWheel
-            }
-            onKeyDown={
-              handleRemoteKeyDown
-            }
-          >
-
-            {remoteFrame ? (
-
-              <img
-                src={remoteFrame}
-                alt={`Live screen of ${device.hostname}`}
-                className="remote-screen-image"
-                draggable={false}
-                onMouseMove={
-                  handleRemoteMouseMove
-                }
-                onClick={
-                  handleRemoteClick
-                }
-                onDoubleClick={
-                  handleRemoteDoubleClick
-                }
-                onContextMenu={
-                  handleRemoteContextMenu
-                }
-              />
-
-            ) : (
-
-              <div className="remote-screen-loading">
-
-                <div className="remote-screen-spinner" />
-
-                <strong>
-
-                  {recoveringSession
-                    ? "Checking for existing remote session..."
-                    : remoteStatus ===
-                      "connecting"
-                    ? "Establishing secure endpoint stream..."
-                    : remoteStatus ===
-                      "error"
-                    ? "Remote session unavailable"
-                    : "Waiting for endpoint stream..."}
-
-                </strong>
-
-
-                {remoteSessionId && (
-
-                  <span>
-                    Session #
-                    {remoteSessionId}
-                  </span>
-
-                )}
-
-
-                {remoteError && (
-
-                  <p className="remote-error">
-                    {remoteError}
-                  </p>
-
-                )}
-
-
-                {!remoteSessionId &&
-                  !remoteError &&
-                  !recoveringSession && (
-
-                    <span>
-                      Start a remote
-                      session to view
-                      the endpoint.
-                    </span>
-
-                  )}
-
-              </div>
-
-            )}
 
           </div>
-
-
-          {remoteFrame &&
-            remoteStatus ===
-              "live" && (
-
-              <div className="remote-control-hint">
-
-                <span>
-                  MOUSE
-                </span>
-
-                <small>
-                  Move · Click · Double-click · Right-click · Scroll
-                </small>
-
-                <span>
-                  KEYBOARD
-                </span>
-
-                <small>
-                  Click the remote screen and type normally
-                </small>
-
-              </div>
-
-            )}
-
 
         </section>
 

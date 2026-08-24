@@ -1,3 +1,6 @@
+from datetime import datetime, timezone
+from typing import Optional
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -5,20 +8,203 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.remote_session import RemoteSession
-from app.services.remote_stream import remote_stream_manager
 from app.services.remote_control import remote_control_manager
 
 
 router = APIRouter(
     prefix="/api/v1/remote",
-    tags=["Remote Support"]
+    tags=["Remote Support"],
 )
+
+
+# =========================================================
+# IN-MEMORY REMOTE STREAM HUB
+# =========================================================
+#
+# The previous implementation delegated frame delivery to
+# remote_stream_manager. The agent was successfully sending
+# fresh frames, but the viewer could remain on an old frame.
+#
+# This hub uses a "latest frame wins" design:
+#
+#   Agent -> latest_frame -> Viewer
+#
+# A slow viewer never blocks the agent. Old frames are
+# discarded automatically and only the newest frame is sent.
+# =========================================================
+
+class _StreamChannel:
+    def __init__(self) -> None:
+        self.agent: Optional[WebSocket] = None
+        self.viewer: Optional[WebSocket] = None
+        self.latest_frame: Optional[bytes] = None
+        self.frame_event = __import__("asyncio").Event()
+        self.lock = __import__("asyncio").Lock()
+
+
+class _RemoteStreamHub:
+    def __init__(self) -> None:
+        self.channels: dict[int, _StreamChannel] = {}
+        self.channels_lock = __import__("asyncio").Lock()
+
+    async def _get_channel(self, session_id: int) -> _StreamChannel:
+        async with self.channels_lock:
+            channel = self.channels.get(session_id)
+            if channel is None:
+                channel = _StreamChannel()
+                self.channels[session_id] = channel
+            return channel
+
+    async def connect_agent(
+        self,
+        session_id: int,
+        websocket: WebSocket,
+    ) -> None:
+        await websocket.accept()
+
+        channel = await self._get_channel(session_id)
+
+        async with channel.lock:
+            old = channel.agent
+            channel.agent = websocket
+
+        if old is not None and old is not websocket:
+            try:
+                await old.close(code=1000)
+            except Exception:
+                pass
+
+    async def connect_viewer(
+        self,
+        session_id: int,
+        websocket: WebSocket,
+    ) -> None:
+        await websocket.accept()
+
+        channel = await self._get_channel(session_id)
+
+        async with channel.lock:
+            old = channel.viewer
+            channel.viewer = websocket
+
+        if old is not None and old is not websocket:
+            try:
+                await old.close(code=1000)
+            except Exception:
+                pass
+
+    async def send_frame(
+        self,
+        session_id: int,
+        frame: bytes,
+    ) -> None:
+        channel = await self._get_channel(session_id)
+
+        async with channel.lock:
+            channel.latest_frame = frame
+            channel.frame_event.set()
+
+    async def stream_to_viewer(
+        self,
+        session_id: int,
+        websocket: WebSocket,
+    ) -> None:
+        channel = await self._get_channel(session_id)
+
+        while True:
+            await channel.frame_event.wait()
+
+            async with channel.lock:
+                frame = channel.latest_frame
+                channel.frame_event.clear()
+
+                # Do not send anything if the viewer that owns
+                # this stream has already been replaced/closed.
+                if channel.viewer is not websocket:
+                    return
+
+            if not frame:
+                continue
+
+            try:
+                await websocket.send_bytes(frame)
+            except Exception:
+                raise
+
+            # If another frame arrived while send_bytes() was
+            # running, frame_event will already be set and the
+            # next loop sends the newest frame.
+
+    async def disconnect_agent(
+        self,
+        session_id: int,
+    ) -> None:
+        channel = self.channels.get(session_id)
+        if channel is None:
+            return
+
+        async with channel.lock:
+            websocket = channel.agent
+            channel.agent = None
+
+        if websocket is not None:
+            try:
+                await websocket.close(code=1000)
+            except Exception:
+                pass
+
+    async def disconnect_viewer(
+        self,
+        session_id: int,
+    ) -> None:
+        channel = self.channels.get(session_id)
+        if channel is None:
+            return
+
+        async with channel.lock:
+            websocket = channel.viewer
+            channel.viewer = None
+
+        if websocket is not None:
+            try:
+                await websocket.close(code=1000)
+            except Exception:
+                pass
+
+    async def disconnect_session(
+        self,
+        session_id: int,
+    ) -> None:
+        channel = self.channels.get(session_id)
+        if channel is None:
+            return
+
+        async with channel.lock:
+            agent = channel.agent
+            viewer = channel.viewer
+
+            channel.agent = None
+            channel.viewer = None
+            channel.latest_frame = None
+            channel.frame_event.set()
+
+        for websocket in (agent, viewer):
+            if websocket is not None:
+                try:
+                    await websocket.close(code=1000)
+                except Exception:
+                    pass
+
+        async with self.channels_lock:
+            self.channels.pop(session_id, None)
+
+
+remote_stream_hub = _RemoteStreamHub()
 
 
 # =========================================================
@@ -28,9 +214,8 @@ router = APIRouter(
 @router.post("/sessions")
 def create_remote_session(
     device_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # Check whether the device exists
     agent = (
         db.query(Agent)
         .filter(Agent.device_id == device_id)
@@ -40,10 +225,9 @@ def create_remote_session(
     if not agent:
         raise HTTPException(
             status_code=404,
-            detail="Device not found"
+            detail="Device not found",
         )
 
-    # Check whether there is already an active session
     active_session = (
         db.query(RemoteSession)
         .filter(
@@ -51,10 +235,11 @@ def create_remote_session(
             RemoteSession.status.in_(
                 [
                     "REQUESTED",
+                    "ACCEPTED",
                     "CONNECTING",
                     "ACTIVE",
                 ]
-            )
+            ),
         )
         .first()
     )
@@ -62,23 +247,28 @@ def create_remote_session(
     if active_session:
         raise HTTPException(
             status_code=409,
-            detail="A remote session is already active for this device"
+            detail="A remote session is already active for this device",
         )
 
     session = RemoteSession(
         device_id=device_id,
-        status="REQUESTED"
+        status="REQUESTED",
     )
 
     db.add(session)
     db.commit()
     db.refresh(session)
 
+    print(
+        f"[REMOTE] Created session "
+        f"{session.id} for device {device_id}"
+    )
+
     return {
         "status": "requested",
         "session_id": session.id,
         "device_id": session.device_id,
-        "session_status": session.status
+        "session_status": session.status,
     }
 
 
@@ -89,7 +279,7 @@ def create_remote_session(
 @router.get("/sessions/pending/{device_id}")
 def get_pending_session(
     device_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     session = (
         db.query(RemoteSession)
@@ -102,22 +292,20 @@ def get_pending_session(
                     "CONNECTING",
                     "ACTIVE",
                 ]
-            )
+            ),
         )
         .order_by(RemoteSession.id.desc())
         .first()
     )
 
     if not session:
-        return {
-            "pending": False
-        }
+        return {"pending": False}
 
     return {
         "pending": True,
         "session_id": session.id,
-        "device_id": session.device_id,
-        "status": session.status
+        "device_id": device_id,
+        "status": session.status,
     }
 
 
@@ -128,7 +316,7 @@ def get_pending_session(
 @router.post("/sessions/{session_id}/accept")
 def accept_remote_session(
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     session = (
         db.query(RemoteSession)
@@ -139,28 +327,31 @@ def accept_remote_session(
     if not session:
         raise HTTPException(
             status_code=404,
-            detail="Remote session not found"
+            detail="Remote session not found",
         )
 
     if session.status != "REQUESTED":
         raise HTTPException(
             status_code=409,
             detail=(
-                "Session cannot be accepted from "
-                f"status {session.status}"
-            )
+                "Session cannot be accepted "
+                f"from status {session.status}"
+            ),
         )
 
     session.status = "ACCEPTED"
-
     db.commit()
     db.refresh(session)
+
+    print(
+        f"[REMOTE] Session {session_id} accepted"
+    )
 
     return {
         "status": "accepted",
         "session_id": session.id,
         "device_id": session.device_id,
-        "session_status": session.status
+        "session_status": session.status,
     }
 
 
@@ -171,7 +362,7 @@ def accept_remote_session(
 @router.post("/sessions/{session_id}/connect")
 def connect_remote_session(
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     session = (
         db.query(RemoteSession)
@@ -182,28 +373,31 @@ def connect_remote_session(
     if not session:
         raise HTTPException(
             status_code=404,
-            detail="Remote session not found"
+            detail="Remote session not found",
         )
 
     if session.status != "ACCEPTED":
         raise HTTPException(
             status_code=409,
             detail=(
-                "Session cannot connect from "
-                f"status {session.status}"
-            )
+                "Session cannot connect "
+                f"from status {session.status}"
+            ),
         )
 
     session.status = "CONNECTING"
-
     db.commit()
     db.refresh(session)
+
+    print(
+        f"[REMOTE] Session {session_id} connecting"
+    )
 
     return {
         "status": "connecting",
         "session_id": session.id,
         "device_id": session.device_id,
-        "session_status": session.status
+        "session_status": session.status,
     }
 
 
@@ -214,7 +408,7 @@ def connect_remote_session(
 @router.get("/sessions/{session_id}")
 def get_remote_session(
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     session = (
         db.query(RemoteSession)
@@ -225,7 +419,7 @@ def get_remote_session(
     if not session:
         raise HTTPException(
             status_code=404,
-            detail="Remote session not found"
+            detail="Remote session not found",
         )
 
     return {
@@ -233,7 +427,82 @@ def get_remote_session(
         "device_id": session.device_id,
         "status": session.status,
         "started_at": session.started_at,
-        "ended_at": session.ended_at
+        "ended_at": session.ended_at,
+    }
+
+
+# =========================================================
+# END REMOTE SESSION
+# =========================================================
+
+@router.post("/sessions/{session_id}/disconnect")
+async def disconnect_remote_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+):
+    session = (
+        db.query(RemoteSession)
+        .filter(RemoteSession.id == session_id)
+        .first()
+    )
+
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="Remote session not found",
+        )
+
+    if session.status == "ENDED":
+        await remote_stream_hub.disconnect_session(session_id)
+
+        try:
+            await remote_control_manager.disconnect_agent(session_id)
+        except Exception:
+            pass
+
+        return {
+            "status": "ended",
+            "session_id": session.id,
+            "device_id": session.device_id,
+            "session_status": session.status,
+            "ended_at": session.ended_at,
+        }
+
+    # Mark ENDED before closing sockets. This prevents stale
+    # agent connections from being accepted again.
+    session.status = "ENDED"
+    session.ended_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(session)
+
+    print(
+        f"[REMOTE] Session {session_id} marked ENDED"
+    )
+
+    # Kill both stream sides.
+    await remote_stream_hub.disconnect_session(session_id)
+
+    # Kill the agent control channel.
+    try:
+        await remote_control_manager.disconnect_agent(session_id)
+    except Exception as e:
+        print(
+            f"[REMOTE] Control disconnect warning for "
+            f"session {session_id}: {type(e).__name__}: {e}"
+        )
+
+    print(
+        f"[REMOTE] Session {session_id} ended. "
+        f"All remote connections closed."
+    )
+
+    return {
+        "status": "ended",
+        "session_id": session.id,
+        "device_id": session.device_id,
+        "session_status": session.status,
+        "ended_at": session.ended_at,
     }
 
 
@@ -245,7 +514,7 @@ def get_remote_session(
 async def remote_session_stream(
     websocket: WebSocket,
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     session = (
         db.query(RemoteSession)
@@ -261,12 +530,16 @@ async def remote_session_stream(
         "CONNECTING",
         "ACTIVE",
     ]:
+        print(
+            f"[REMOTE] Rejected viewer stream for "
+            f"session {session_id} with status {session.status}"
+        )
         await websocket.close(code=1008)
         return
 
-    await remote_stream_manager.connect_viewer(
+    await remote_stream_hub.connect_viewer(
         session_id,
-        websocket
+        websocket,
     )
 
     print(
@@ -274,71 +547,28 @@ async def remote_session_stream(
     )
 
     try:
-
-        while True:
-
-            await websocket.receive()
+        await remote_stream_hub.stream_to_viewer(
+            session_id,
+            websocket,
+        )
 
     except WebSocketDisconnect:
-
         print(
-            f"[REMOTE] Viewer disconnected "
-            f"from session {session_id}"
+            f"[REMOTE] Viewer disconnected from "
+            f"session {session_id}"
         )
 
     except Exception as e:
-
         print(
-            f"[REMOTE] Viewer stream error "
-            f"for session {session_id}: {e}"
+            f"[REMOTE] Viewer stream error for "
+            f"session {session_id}: "
+            f"{type(e).__name__}: {e}"
         )
 
     finally:
-
-        await remote_stream_manager.disconnect_viewer(
+        await remote_stream_hub.disconnect_viewer(
             session_id
         )
-
-
-# =========================================================
-# END REMOTE SESSION
-# =========================================================
-
-@router.post("/sessions/{session_id}/disconnect")
-def disconnect_remote_session(
-    session_id: int,
-    db: Session = Depends(get_db)
-):
-    session = (
-        db.query(RemoteSession)
-        .filter(RemoteSession.id == session_id)
-        .first()
-    )
-
-    if not session:
-        raise HTTPException(
-            status_code=404,
-            detail="Remote session not found"
-        )
-
-    if session.status == "ENDED":
-        raise HTTPException(
-            status_code=409,
-            detail="Remote session is already ended"
-        )
-
-    session.status = "ENDED"
-
-    db.commit()
-    db.refresh(session)
-
-    return {
-        "status": "ended",
-        "session_id": session.id,
-        "device_id": session.device_id,
-        "session_status": session.status,
-        "ended_at": session.ended_at
-    }
 
 
 # =========================================================
@@ -349,7 +579,7 @@ def disconnect_remote_session(
 async def remote_agent_stream(
     websocket: WebSocket,
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     session = (
         db.query(RemoteSession)
@@ -365,90 +595,93 @@ async def remote_agent_stream(
         "CONNECTING",
         "ACTIVE",
     ]:
+        print(
+            f"[REMOTE] Rejected agent stream for "
+            f"session {session_id} with status {session.status}"
+        )
         await websocket.close(code=1008)
         return
 
-    await remote_stream_manager.connect_agent(
+    await remote_stream_hub.connect_agent(
         session_id,
-        websocket
+        websocket,
     )
 
-    session.status = "ACTIVE"
-
-    db.commit()
+    # Re-check after accept: End Session can race the handshake.
     db.refresh(session)
+
+    if session.status not in [
+        "CONNECTING",
+        "ACTIVE",
+    ]:
+        await remote_stream_hub.disconnect_agent(
+            session_id
+        )
+        try:
+            await websocket.close(code=1008)
+        except Exception:
+            pass
+        return
+
+    if session.status == "CONNECTING":
+        session.status = "ACTIVE"
+        db.commit()
+        db.refresh(session)
 
     print(
         f"[REMOTE] Agent connected for session {session_id}"
     )
 
     try:
-
         while True:
-
             message = await websocket.receive()
 
-            # Client disconnected
             if message.get("type") == "websocket.disconnect":
-
                 print(
-                    f"[REMOTE] Agent disconnected "
-                    f"from session {session_id}"
+                    f"[REMOTE] Agent disconnected from "
+                    f"session {session_id}"
                 )
-
                 break
 
-            # Screen frame received
+            frame = message.get("bytes")
+
             if (
                 message.get("type") == "websocket.receive"
-                and message.get("bytes") is not None
+                and frame is not None
             ):
-
-                await remote_stream_manager.send_frame(
+                await remote_stream_hub.send_frame(
                     session_id,
-                    message["bytes"]
+                    frame,
                 )
 
     except WebSocketDisconnect:
-
         print(
-            f"[REMOTE] Agent disconnected "
-            f"from session {session_id}"
+            f"[REMOTE] Agent disconnected from "
+            f"session {session_id}"
         )
 
     except Exception as e:
-
         print(
-            f"[REMOTE] Agent stream error "
-            f"for session {session_id}: {e}"
+            f"[REMOTE] Agent stream error for "
+            f"session {session_id}: "
+            f"{type(e).__name__}: {e}"
         )
 
     finally:
-
-        await remote_stream_manager.disconnect_agent(
+        await remote_stream_hub.disconnect_agent(
             session_id
         )
 
 
 # =========================================================
 # VIEWER CONTROL CHANNEL
-#
-# Browser
-#     ↓
-# /control
-#     ↓
-# RemoteControlManager
-#     ↓
-# /agent-control
-#     ↓
-# TechPilot Agent
 # =========================================================
 
 @router.websocket("/sessions/{session_id}/control")
 async def remote_control_viewer(
     websocket: WebSocket,
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     session = (
         db.query(RemoteSession)
@@ -457,7 +690,6 @@ async def remote_control_viewer(
     )
 
     if not session:
-
         await websocket.close(code=1008)
         return
 
@@ -465,54 +697,44 @@ async def remote_control_viewer(
         "CONNECTING",
         "ACTIVE",
     ]:
-
         await websocket.close(code=1008)
         return
 
     await websocket.accept()
 
     print(
-        f"[CONTROL] Viewer connected "
-        f"for session {session_id}"
+        f"[CONTROL] Viewer connected for session {session_id}"
     )
 
     try:
-
         while True:
-
             message = await websocket.receive_text()
 
-            print(
-                f"[CONTROL] Command received "
-                f"from viewer for session "
-                f"{session_id}: {message}"
-            )
-
+            # IMPORTANT:
+            # Do not do expensive work here. The frontend already
+            # coalesces mouse movement. Forward immediately.
             success = await remote_control_manager.send_command(
                 session_id,
-                message
+                message,
             )
 
             if not success:
-
                 print(
-                    f"[CONTROL] Agent control channel "
-                    f"not available for session "
-                    f"{session_id}"
+                    f"[CONTROL] Agent control channel unavailable "
+                    f"for session {session_id}"
                 )
 
     except WebSocketDisconnect:
-
         print(
-            f"[CONTROL] Viewer disconnected "
+            f"[CONTROL] Viewer control disconnected "
             f"from session {session_id}"
         )
 
     except Exception as e:
-
         print(
-            f"[CONTROL] Viewer control error "
-            f"for session {session_id}: {e}"
+            f"[CONTROL] Viewer control error for "
+            f"session {session_id}: "
+            f"{type(e).__name__}: {e}"
         )
 
 
@@ -524,16 +746,17 @@ async def remote_control_viewer(
 async def remote_agent_control(
     websocket: WebSocket,
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     session = (
         db.query(RemoteSession)
-        .filter(RemoteSession.id == session_id)
+        .filter(
+            RemoteSession.id == session_id
+        )
         .first()
     )
 
     if not session:
-
         await websocket.close(code=1008)
         return
 
@@ -541,14 +764,32 @@ async def remote_agent_control(
         "CONNECTING",
         "ACTIVE",
     ]:
-
+        print(
+            f"[CONTROL] Rejected agent control for "
+            f"session {session_id} with status {session.status}"
+        )
         await websocket.close(code=1008)
         return
 
     await remote_control_manager.connect_agent(
         session_id,
-        websocket
+        websocket,
     )
+
+    db.refresh(session)
+
+    if session.status not in [
+        "CONNECTING",
+        "ACTIVE",
+    ]:
+        await remote_control_manager.disconnect_agent(
+            session_id
+        )
+        try:
+            await websocket.close(code=1008)
+        except Exception:
+            pass
+        return
 
     print(
         f"[CONTROL] Agent control connected "
@@ -556,33 +797,31 @@ async def remote_agent_control(
     )
 
     try:
-
         while True:
-
             message = await websocket.receive_text()
 
+            # The agent normally does not need to reply, but
+            # receiving here keeps the socket alive and makes
+            # disconnect detection deterministic.
             print(
-                f"[CONTROL] Agent message "
-                f"for session {session_id}: "
-                f"{message}"
+                f"[CONTROL] Agent message for "
+                f"session {session_id}: {message}"
             )
 
     except WebSocketDisconnect:
-
         print(
-            f"[CONTROL] Agent disconnected "
+            f"[CONTROL] Agent control disconnected "
             f"from session {session_id}"
         )
 
     except Exception as e:
-
         print(
-            f"[CONTROL] Agent control error "
-            f"for session {session_id}: {e}"
+            f"[CONTROL] Agent control error for "
+            f"session {session_id}: "
+            f"{type(e).__name__}: {e}"
         )
 
     finally:
-
         await remote_control_manager.disconnect_agent(
             session_id
         )

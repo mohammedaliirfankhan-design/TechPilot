@@ -1,8 +1,10 @@
 import { useState } from "react";
 
+
 import Dashboard from "./pages/Dashboard";
 import Devices from "./pages/Devices";
 import DeviceDetails from "./pages/DeviceDetails";
+import RemoteSession from "./pages/RemoteSession";
 import Diagnostics from "./pages/Diagnostics";
 import Incidents from "./pages/Incidents";
 import Automation from "./pages/Automation";
@@ -57,11 +59,32 @@ const isPage = (value: string): value is Page =>
   value in pageTitles;
 
 function App() {
-  const [page, setPage] = useState<Page>("dashboard");
-  const [query, setQuery] = useState("");
+  const remoteParams =
+    new URLSearchParams(
+      window.location.search,
+    );
+
+  const remoteSessionId =
+    remoteParams.get(
+      "remote_session",
+    );
+
+  const [page, setPage] =
+    useState<Page>("dashboard");
+
+  const [query, setQuery] =
+    useState("");
+
   const [selectedDeviceId, setSelectedDeviceId] =
     useState<string | null>(null);
 
+  if (remoteSessionId) {
+  return (
+    <RemoteSession
+      sessionId={Number(remoteSessionId)}
+    />
+  );
+}
   const handleNavigate = (nextPage: Page) => {
     setPage(nextPage);
     setQuery("");

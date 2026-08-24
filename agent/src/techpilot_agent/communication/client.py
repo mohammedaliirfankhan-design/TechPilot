@@ -60,11 +60,17 @@ class TechPilotClient:
         return response.json()
 
 
-    def get_remote_session(self, session_id: int) -> dict:
-        response = requests.get(
-        f"{self.base_url}/api/v1/remote/sessions/{session_id}",
+    def disconnect_remote_session(
+    self,
+    session_id: int,
+) -> dict:
+
+        response = requests.post(
+        f"{self.base_url}/api/v1/remote/sessions/"
+        f"{session_id}/disconnect",
         timeout=10,
     )
 
         response.raise_for_status()
+
         return response.json()
