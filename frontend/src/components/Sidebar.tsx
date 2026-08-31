@@ -2,13 +2,7 @@ import { useEffect, useState } from "react";
 
 type Page =
   | "dashboard"
-  | "devices"
-  | "diagnostics"
-  | "incidents"
-  | "automation"
-  | "audit"
-  | "reports"
-  | "settings";
+  | "devices";
 
 type NavigationItem = {
   key: Page;
@@ -24,17 +18,26 @@ type SidebarProps = {
 };
 
 const navigation: NavigationItem[] = [
-  { key: "dashboard", label: "Dashboard", icon: "▦", code: "SYS", number: "01" },
-  { key: "devices", label: "Devices", icon: "▣", code: "END", number: "02" },
-  { key: "diagnostics", label: "Diagnostics", icon: "⌁", code: "DGN", number: "03" },
-  { key: "incidents", label: "Incidents", icon: "!", code: "INC", number: "04" },
-  { key: "automation", label: "Automation", icon: "✦", code: "AUT", number: "05" },
-  { key: "audit", label: "Audit Logs", icon: "≡", code: "SEC", number: "06" },
-  { key: "reports", label: "Reports", icon: "◫", code: "RPT", number: "07" },
-  { key: "settings", label: "Settings", icon: "⚙", code: "CFG", number: "08" },
+  {
+    key: "dashboard",
+    label: "Dashboard",
+    icon: "■",
+    code: "SYS",
+    number: "01",
+  },
+  {
+    key: "devices",
+    label: "Devices",
+    icon: "▣",
+    code: "END",
+    number: "02",
+  },
 ];
 
-function Sidebar({ page, onNavigate }: SidebarProps) {
+function Sidebar({
+  page,
+  onNavigate,
+}: SidebarProps) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -43,17 +46,27 @@ function Sidebar({ page, onNavigate }: SidebarProps) {
       return;
     }
 
-    const handleKeyDown = (event: KeyboardEvent) => {
+    const handleKeyDown = (
+      event: KeyboardEvent,
+    ) => {
       if (event.key === "Escape") {
         setOpen(false);
       }
     };
 
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener(
+      "keydown",
+      handleKeyDown,
+    );
+
     document.body.style.overflow = "hidden";
 
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener(
+        "keydown",
+        handleKeyDown,
+      );
+
       document.body.style.overflow = "";
     };
   }, [open]);
@@ -65,12 +78,6 @@ function Sidebar({ page, onNavigate }: SidebarProps) {
 
   return (
     <>
-      {/* =====================================================
-          MENU BUTTON
-          Only rendered while the sidebar is closed.
-          This prevents a second X from appearing.
-          ===================================================== */}
-
       {!open && (
         <button
           type="button"
@@ -86,10 +93,6 @@ function Sidebar({ page, onNavigate }: SidebarProps) {
         </button>
       )}
 
-      {/* =====================================================
-          BACKDROP
-          ===================================================== */}
-
       {open && (
         <button
           type="button"
@@ -100,27 +103,25 @@ function Sidebar({ page, onNavigate }: SidebarProps) {
         />
       )}
 
-      {/* =====================================================
-          SIDEBAR
-          ===================================================== */}
-
       <aside
         id="techpilot-sidebar"
         className={`sidebar futuristic-sidebar ${
-          open ? "sidebar-open" : "sidebar-closed"
+          open
+            ? "sidebar-open"
+            : "sidebar-closed"
         }`}
         aria-label="Primary navigation"
         aria-hidden={!open}
       >
-        {/* ===================================================
-            BRAND
-            =================================================== */}
+        {/* BRAND */}
 
         <div className="brand futuristic-brand">
           <button
             type="button"
             className="brand-button"
-            onClick={() => handleNavigate("dashboard")}
+            onClick={() =>
+              handleNavigate("dashboard")
+            }
             aria-label="Go to TechPilot dashboard"
           >
             <div
@@ -133,11 +134,10 @@ function Sidebar({ page, onNavigate }: SidebarProps) {
 
             <div className="brand-copy">
               <strong>TECHPILOT</strong>
-              <span>IT OPERATIONS</span>
+              <span>REMOTE SUPPORT</span>
             </div>
           </button>
 
-          {/* One and only sidebar close button. */}
           {open && (
             <button
               type="button"
@@ -155,26 +155,22 @@ function Sidebar({ page, onNavigate }: SidebarProps) {
           </div>
         </div>
 
-        {/* ===================================================
-            WORKSPACE
-            =================================================== */}
+        {/* WORKSPACE */}
 
         <div className="workspace-label">
           <span>WORKSPACE</span>
           <i />
         </div>
 
-        {/* ===================================================
-            NAVIGATION
-            =================================================== */}
+        {/* NAVIGATION */}
 
         <nav
           className="navigation futuristic-navigation"
           aria-label="Workspace navigation"
         >
           {navigation.map((item) => {
-            const isActive = page === item.key;
-            const isIncident = item.key === "incidents";
+            const isActive =
+              page === item.key;
 
             return (
               <button
@@ -183,30 +179,35 @@ function Sidebar({ page, onNavigate }: SidebarProps) {
                 className={`nav-item futuristic-nav-item ${
                   isActive ? "active" : ""
                 }`}
-                onClick={() => handleNavigate(item.key)}
-                aria-current={isActive ? "page" : undefined}
+                onClick={() =>
+                  handleNavigate(item.key)
+                }
+                aria-current={
+                  isActive
+                    ? "page"
+                    : undefined
+                }
               >
-                <span className="nav-number">{item.number}</span>
+                <span className="nav-number">
+                  {item.number}
+                </span>
 
-                <span className="nav-icon" aria-hidden="true">
+                <span
+                  className="nav-icon"
+                  aria-hidden="true"
+                >
                   {item.icon}
                 </span>
 
-                {/* Label + incident count are kept together. */}
                 <span className="nav-label-group">
-                  <span className="nav-label">{item.label}</span>
-
-                  {isIncident && (
-                    <span
-                      className="nav-count"
-                      aria-label="7 open incidents"
-                    >
-                      7
-                    </span>
-                  )}
+                  <span className="nav-label">
+                    {item.label}
+                  </span>
                 </span>
 
-                <span className="nav-code">{item.code}</span>
+                <span className="nav-code">
+                  {item.code}
+                </span>
 
                 <span
                   className="nav-active-line"
@@ -217,9 +218,7 @@ function Sidebar({ page, onNavigate }: SidebarProps) {
           })}
         </nav>
 
-        {/* ===================================================
-            SYSTEM STATUS
-            =================================================== */}
+        {/* SYSTEM STATUS */}
 
         <div className="sidebar-live-panel">
           <div className="sidebar-live-header">
@@ -231,8 +230,13 @@ function Sidebar({ page, onNavigate }: SidebarProps) {
             <span className="status-dot" />
 
             <div>
-              <strong>System operational</strong>
-              <span>All services healthy</span>
+              <strong>
+                System operational
+              </strong>
+
+              <span>
+                Remote support ready
+              </span>
             </div>
           </div>
 
@@ -241,22 +245,27 @@ function Sidebar({ page, onNavigate }: SidebarProps) {
           </div>
 
           <div className="sidebar-live-readout">
-            <span>UPTIME</span>
-            <strong>99.98%</strong>
+            <span>STATUS</span>
+            <strong>READY</strong>
           </div>
         </div>
 
-        {/* ===================================================
-            PROFILE
-            =================================================== */}
+        {/* PROFILE */}
 
         <div className="sidebar-bottom">
           <div className="profile futuristic-profile">
-            <div className="avatar futuristic-avatar">AM</div>
+            <div className="avatar futuristic-avatar">
+              AM
+            </div>
 
             <div className="profile-copy">
-              <strong>Admin User</strong>
-              <span>admin@techpilot.io</span>
+              <strong>
+                Admin User
+              </strong>
+
+              <span>
+                admin@techpilot.io
+              </span>
             </div>
 
             <button
