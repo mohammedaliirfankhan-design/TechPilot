@@ -1,38 +1,84 @@
-import { useState } from "react";
+import {
+  useEffect,
+  useState,
+} from "react";
 
-import Dashboard from "./pages/Dashboard";
+import Home from "./pages/Home";
 import Devices from "./pages/Devices";
 import DeviceDetails from "./pages/DeviceDetails";
 import RemoteSession from "./pages/RemoteSession";
+import Login from "./pages/login";
+import CreateAccount from "./pages/CreateAccount";
 
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 
+import {
+  getCurrentUser,
+} from "./api";
+
+import type {
+  User,
+} from "./api";
+
 export type Page =
-  | "dashboard"
+  | "home"
   | "devices";
 
-const pageTitles: Record<Page, string> = {
-  dashboard: "Dashboard",
+type AuthScreen =
+  | "login"
+  | "register";
+
+const TOKEN_KEY =
+  "techpilot_access_token";
+
+const pageTitles: Record<
+  Page,
+  string
+> = {
+  home: "Home",
   devices: "Devices",
 };
 
-const pageDescriptions: Record<Page, string> = {
-  dashboard:
-    "Manage your TechPilot endpoints and provide secure remote support.",
+const pageDescriptions: Record<
+  Page,
+  string
+> = {
+  home:
+    "Secure remote support for your connected endpoints.",
   devices:
-    "View registered TechPilot agents and start remote support sessions.",
+    "View connected TechPilot agents and start remote support sessions.",
 };
 
 function App() {
   const remoteParams =
-    new URLSearchParams(window.location.search);
+    new URLSearchParams(
+      window.location.search,
+    );
 
   const remoteSessionId =
-    remoteParams.get("remote_session");
+    remoteParams.get(
+      "remote_session",
+    );
+
+  const [token, setToken] =
+    useState<string | null>(() =>
+      localStorage.getItem(
+        TOKEN_KEY,
+      ),
+    );
+
+  const [currentUser, setCurrentUser] =
+    useState<User | null>(null);
+
+  const [authLoading, setAuthLoading] =
+    useState(true);
+
+  const [authScreen, setAuthScreen] =
+    useState<AuthScreen>("login");
 
   const [page, setPage] =
-    useState<Page>("dashboard");
+    useState<Page>("home");
 
   const [query, setQuery] =
     useState("");
@@ -40,80 +86,200 @@ function App() {
   const [selectedDeviceId, setSelectedDeviceId] =
     useState<string | null>(null);
 
-  /*
-   * ---------------------------------------------------------
-   * REMOTE SESSION
-   *
-   * Keep this completely separate from the normal
-   * application shell.
-   * ---------------------------------------------------------
-   */
+  useEffect(() => {
+    let cancelled = false;
 
-  if (remoteSessionId) {
+    const validateSession =
+      async () => {
+        const storedToken =
+          localStorage.getItem(
+            TOKEN_KEY,
+          );
+
+        if (!storedToken) {
+          if (!cancelled) {
+            setToken(null);
+            setCurrentUser(null);
+            setAuthLoading(false);
+          }
+
+          return;
+        }
+
+        try {
+          const user =
+            await getCurrentUser(
+              storedToken,
+            );
+
+          if (cancelled) {
+            return;
+          }
+
+          setToken(storedToken);
+          setCurrentUser(user);
+        } catch {
+          localStorage.removeItem(
+            TOKEN_KEY,
+          );
+
+          if (!cancelled) {
+            setToken(null);
+            setCurrentUser(null);
+            setAuthScreen("login");
+          }
+        } finally {
+          if (!cancelled) {
+            setAuthLoading(false);
+          }
+        }
+      };
+
+    void validateSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleAuthenticated = (
+    accessToken: string,
+  ) => {
+    setToken(accessToken);
+
+    void getCurrentUser(
+      accessToken,
+    )
+      .then((user) => {
+        setCurrentUser(user);
+        setAuthLoading(false);
+      })
+      .catch(() => {
+        localStorage.removeItem(
+          TOKEN_KEY,
+        );
+
+        setToken(null);
+        setCurrentUser(null);
+        setAuthScreen("login");
+        setAuthLoading(false);
+      });
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(
+      TOKEN_KEY,
+    );
+
+    setToken(null);
+    setCurrentUser(null);
+    setSelectedDeviceId(null);
+    setQuery("");
+    setPage("home");
+    setAuthScreen("login");
+  };
+
+  const handleNavigate = (
+    nextPage: Page,
+  ) => {
+    setPage(nextPage);
+    setQuery("");
+    setSelectedDeviceId(null);
+  };
+
+  if (
+    remoteSessionId &&
+    Number.isFinite(
+      Number(remoteSessionId),
+    )
+  ) {
     return (
       <RemoteSession
-        sessionId={Number(remoteSessionId)}
+        sessionId={Number(
+          remoteSessionId,
+        )}
       />
     );
   }
 
-  /*
-   * ---------------------------------------------------------
-   * NAVIGATION
-   * ---------------------------------------------------------
-   */
+  if (authLoading) {
+    return (
+      <div className="auth-loading">
+        <div className="auth-loading-card">
+          <div className="auth-loading-mark">
+            TP
+          </div>
 
-  const handleNavigate = (nextPage: Page) => {
-    setPage(nextPage);
-    setQuery("");
+          <strong>
+            TECHPILOT
+          </strong>
 
-    if (nextPage !== "devices") {
-      setSelectedDeviceId(null);
+          <span>
+            VERIFYING SECURE SESSION...
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!token || !currentUser) {
+    if (
+      authScreen === "register"
+    ) {
+      return (
+        <CreateAccount
+          onRegisterSuccess={
+            handleAuthenticated
+          }
+          onLogin={() =>
+            setAuthScreen("login")
+          }
+        />
+      );
     }
-  };
 
-  /*
-   * ---------------------------------------------------------
-   * PAGE RENDER
-   * ---------------------------------------------------------
-   */
+    return (
+      <Login
+        onLoginSuccess={
+          handleAuthenticated
+        }
+        onCreateAccount={() =>
+          setAuthScreen("register")
+        }
+      />
+    );
+  }
 
   const renderPage = () => {
-    switch (page) {
-      case "dashboard":
-        return (
-          <Dashboard
-            onNavigate={(section) => {
-              if (
-                section === "devices" ||
-                section === "dashboard"
-              ) {
-                handleNavigate(section);
-              }
-            }}
-          />
-        );
-
-      case "devices":
-        return selectedDeviceId ? (
-          <DeviceDetails
-            deviceId={selectedDeviceId}
-            onBack={() =>
-              setSelectedDeviceId(null)
-            }
-          />
-        ) : (
-          <Devices
-            searchQuery={query}
-            onDeviceSelect={
-              setSelectedDeviceId
-            }
-          />
-        );
-
-      default:
-        return null;
+    if (page === "home") {
+      return (
+        <Home
+          onNavigate={() =>
+            handleNavigate("devices")
+          }
+        />
+      );
     }
+
+    if (selectedDeviceId) {
+      return (
+        <DeviceDetails
+          deviceId={selectedDeviceId}
+          onBack={() =>
+            setSelectedDeviceId(null)
+          }
+        />
+      );
+    }
+
+    return (
+      <Devices
+        searchQuery={query}
+        onDeviceSelect={
+          setSelectedDeviceId
+        }
+      />
+    );
   };
 
   return (
@@ -135,7 +301,11 @@ function App() {
 
       <Sidebar
         page={page}
-        onNavigate={handleNavigate}
+        email={currentUser.email}
+        onNavigate={
+          handleNavigate
+        }
+        onLogout={handleLogout}
       />
 
       <div className="app-main">
@@ -151,6 +321,7 @@ function App() {
             <div className="page-header-copy">
               <div className="page-eyebrow">
                 <span className="eyebrow-dot" />
+
                 TECHPILOT /{" "}
                 {pageTitles[
                   page
@@ -162,7 +333,11 @@ function App() {
               </h1>
 
               <p>
-                {pageDescriptions[page]}
+                {
+                  pageDescriptions[
+                    page
+                  ]
+                }
               </p>
             </div>
 

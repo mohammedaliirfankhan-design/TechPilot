@@ -1,42 +1,43 @@
 import { useEffect, useState } from "react";
 
 type Page =
-  | "dashboard"
+  | "home"
   | "devices";
+
+type SidebarProps = {
+  page: Page;
+  email: string;
+  onNavigate: (page: Page) => void;
+  onLogout: () => void;
+};
 
 type NavigationItem = {
   key: Page;
   label: string;
   icon: string;
   code: string;
-  number: string;
-};
-
-type SidebarProps = {
-  page: Page;
-  onNavigate: (page: Page) => void;
 };
 
 const navigation: NavigationItem[] = [
   {
-    key: "dashboard",
-    label: "Dashboard",
-    icon: "■",
+    key: "home",
+    label: "Home",
+    icon: "⌂",
     code: "SYS",
-    number: "01",
   },
   {
     key: "devices",
     label: "Devices",
     icon: "▣",
     code: "END",
-    number: "02",
   },
 ];
 
 function Sidebar({
   page,
+  email,
   onNavigate,
+  onLogout,
 }: SidebarProps) {
   const [open, setOpen] = useState(false);
 
@@ -46,9 +47,7 @@ function Sidebar({
       return;
     }
 
-    const handleKeyDown = (
-      event: KeyboardEvent,
-    ) => {
+    const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpen(false);
       }
@@ -76,6 +75,11 @@ function Sidebar({
     setOpen(false);
   };
 
+  const handleLogout = () => {
+    setOpen(false);
+    onLogout();
+  };
+
   return (
     <>
       {!open && (
@@ -99,7 +103,6 @@ function Sidebar({
           className="sidebar-backdrop visible"
           onClick={() => setOpen(false)}
           aria-label="Close navigation"
-          tabIndex={0}
         />
       )}
 
@@ -113,16 +116,14 @@ function Sidebar({
         aria-label="Primary navigation"
         aria-hidden={!open}
       >
-        {/* BRAND */}
-
         <div className="brand futuristic-brand">
           <button
             type="button"
             className="brand-button"
             onClick={() =>
-              handleNavigate("dashboard")
+              handleNavigate("home")
             }
-            aria-label="Go to TechPilot dashboard"
+            aria-label="Go to TechPilot home"
           >
             <div
               className="brand-mark futuristic-brand-mark"
@@ -155,14 +156,10 @@ function Sidebar({
           </div>
         </div>
 
-        {/* WORKSPACE */}
-
         <div className="workspace-label">
           <span>WORKSPACE</span>
           <i />
         </div>
-
-        {/* NAVIGATION */}
 
         <nav
           className="navigation futuristic-navigation"
@@ -188,14 +185,7 @@ function Sidebar({
                     : undefined
                 }
               >
-                <span className="nav-number">
-                  {item.number}
-                </span>
-
-                <span
-                  className="nav-icon"
-                  aria-hidden="true"
-                >
+                <span className="nav-icon">
                   {item.icon}
                 </span>
 
@@ -218,11 +208,9 @@ function Sidebar({
           })}
         </nav>
 
-        {/* SYSTEM STATUS */}
-
         <div className="sidebar-live-panel">
           <div className="sidebar-live-header">
-            <span>SYSTEM STATUS</span>
+            <span>CONNECTION</span>
             <i />
           </div>
 
@@ -231,51 +219,39 @@ function Sidebar({
 
             <div>
               <strong>
-                System operational
+                Remote support ready
               </strong>
 
               <span>
-                Remote support ready
+                TechPilot workspace online
               </span>
             </div>
           </div>
-
-          <div className="sidebar-live-meter">
-            <span />
-          </div>
-
-          <div className="sidebar-live-readout">
-            <span>STATUS</span>
-            <strong>READY</strong>
-          </div>
         </div>
-
-        {/* PROFILE */}
 
         <div className="sidebar-bottom">
           <div className="profile futuristic-profile">
             <div className="avatar futuristic-avatar">
-              AM
+              {email
+                .slice(0, 2)
+                .toUpperCase()}
             </div>
 
             <div className="profile-copy">
-              <strong>
-                Admin User
-              </strong>
+              <strong>Account</strong>
 
-              <span>
-                admin@techpilot.io
-              </span>
+              <span>{email}</span>
             </div>
-
-            <button
-              type="button"
-              className="profile-more"
-              aria-label="Open profile options"
-            >
-              •••
-            </button>
           </div>
+
+          <button
+            type="button"
+            className="sidebar-logout-button"
+            onClick={handleLogout}
+          >
+            <span>↪</span>
+            LOG OUT
+          </button>
         </div>
       </aside>
     </>

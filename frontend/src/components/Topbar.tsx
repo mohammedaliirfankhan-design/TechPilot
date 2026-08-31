@@ -1,5 +1,10 @@
+import {
+  useEffect,
+  useState,
+} from "react";
+
 type Page =
-  | "dashboard"
+  | "home"
   | "devices";
 
 type TopbarProps = {
@@ -15,17 +20,89 @@ function Topbar({
   query,
   onQueryChange,
 }: TopbarProps) {
+  const [clock, setClock] =
+    useState("");
+
+  const [isSearchFocused, setIsSearchFocused] =
+    useState(false);
+
+  useEffect(() => {
+    const updateClock = () => {
+      setClock(
+        new Intl.DateTimeFormat(
+          "en-IN",
+          {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false,
+          },
+        ).format(new Date()),
+      );
+    };
+
+    updateClock();
+
+    const interval =
+      window.setInterval(
+        updateClock,
+        1000,
+      );
+
+    return () =>
+      window.clearInterval(
+        interval,
+      );
+  }, []);
+
+  useEffect(() => {
+    const handleShortcut = (
+      event: KeyboardEvent,
+    ) => {
+      if (
+        (event.ctrlKey ||
+          event.metaKey) &&
+        event.key.toLowerCase() ===
+          "k"
+      ) {
+        event.preventDefault();
+
+        const input =
+          document.querySelector<HTMLInputElement>(
+            ".topbar .search input",
+          );
+
+        input?.focus();
+      }
+
+      if (
+        event.key === "Escape" &&
+        document.activeElement instanceof
+          HTMLInputElement
+      ) {
+        document.activeElement.blur();
+      }
+    };
+
+    window.addEventListener(
+      "keydown",
+      handleShortcut,
+    );
+
+    return () =>
+      window.removeEventListener(
+        "keydown",
+        handleShortcut,
+      );
+  }, []);
+
   const pageCode =
-    page === "dashboard"
+    page === "home"
       ? "SYS"
       : "END";
 
   return (
     <header className="topbar futuristic-topbar">
-      {/* =====================================================
-          SYSTEM PATH
-          ===================================================== */}
-
       <div className="breadcrumbs futuristic-breadcrumbs">
         <span className="breadcrumb-system">
           TECHPILOT
@@ -39,9 +116,7 @@ function Topbar({
 
         <b>/</b>
 
-        <strong>
-          {title}
-        </strong>
+        <strong>{title}</strong>
 
         <span className="breadcrumb-status">
           <i />
@@ -49,50 +124,53 @@ function Topbar({
         </span>
       </div>
 
-      {/* =====================================================
-          TOP ACTIONS
-          ===================================================== */}
-
       <div className="top-actions futuristic-top-actions">
-        {/* DEVICE SEARCH */}
-
-        <div className="search futuristic-search">
-          <span
-            className="search-icon"
-            aria-hidden="true"
+        {page === "devices" && (
+          <div
+            className={`search futuristic-search ${
+              isSearchFocused
+                ? "search-focused"
+                : ""
+            }`}
           >
-            ⌕
-          </span>
+            <span
+              className="search-icon"
+              aria-hidden="true"
+            >
+              ⌕
+            </span>
 
-          <input
-            type="text"
-            value={query}
-            onChange={(event) =>
-              onQueryChange(
-                event.target.value,
-              )
-            }
-            placeholder="Search devices..."
-            aria-label="Search devices"
-          />
+            <input
+              type="text"
+              value={query}
+              onChange={(event) =>
+                onQueryChange(
+                  event.target.value,
+                )
+              }
+              onFocus={() =>
+                setIsSearchFocused(true)
+              }
+              onBlur={() =>
+                setIsSearchFocused(false)
+              }
+              placeholder="Search devices..."
+              aria-label="Search devices"
+            />
 
-          <span className="search-scan-line" />
-        </div>
+            <span className="search-scan-line" />
 
-        {/* LOCAL TIME */}
+            <span className="search-shortcut">
+              Ctrl K
+            </span>
+          </div>
+        )}
 
         <div className="top-system-clock">
           <span>LOCAL TIME</span>
 
           <strong>
-            {new Intl.DateTimeFormat(
-              "en-IN",
-              {
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: false,
-              },
-            ).format(new Date())}
+            {clock || "--:--:--"}
           </strong>
         </div>
       </div>
