@@ -23,20 +23,36 @@ class RemoteControlManager:
 
     async def disconnect_agent(
         self,
-        session_id: int
+        session_id: int,
+        websocket: WebSocket | None = None,
     ):
-        websocket = self.agent_connections.pop(
+        current_websocket = self.agent_connections.get(
+            session_id
+        )
+
+        if current_websocket is None:
+            return
+
+        # If a specific socket was supplied, only disconnect it
+        # when it is still the currently registered socket.
+        if (
+            websocket is not None
+            and current_websocket is not websocket
+        ):
+            return
+
+        self.agent_connections.pop(
             session_id,
             None
         )
 
-        if websocket:
+        try:
+            await current_websocket.close(
+                code=1000
+            )
 
-            try:
-                await websocket.close()
-
-            except Exception:
-                pass
+        except Exception:
+            pass
 
     async def send_command(
         self,
@@ -73,7 +89,8 @@ class RemoteControlManager:
             )
 
             await self.disconnect_agent(
-                session_id
+            session_id,
+            agent
             )
 
             return False

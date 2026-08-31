@@ -139,6 +139,8 @@ export default function RemoteSession({
 
   const pendingFrameRef =
     useRef<Blob | null>(null);
+  const receivedFrameCountRef =
+  useRef(0);
 
   const renderingFrameRef =
     useRef(false);
@@ -333,15 +335,39 @@ export default function RemoteSession({
     useCallback(
       async () => {
 
-        if (
-          renderingFrameRef.current ||
-          viewerStoppedRef.current
-        ) {
-          return;
-        }
+  console.log(
+    "[REMOTE] renderLatestFrame ENTERED",
+    {
+      rendering:
+        renderingFrameRef.current,
+      stopped:
+        viewerStoppedRef.current,
+      hasCanvas:
+        !!canvasRef.current,
+      hasPendingFrame:
+        !!pendingFrameRef.current,
+    },
+  );
 
-        const canvas =
-          canvasRef.current;
+  if (
+    renderingFrameRef.current ||
+    viewerStoppedRef.current
+  ) {
+    console.log(
+      "[REMOTE] renderLatestFrame BLOCKED",
+      {
+        rendering:
+          renderingFrameRef.current,
+        stopped:
+          viewerStoppedRef.current,
+      },
+    );
+
+    return;
+  }
+
+  const canvas =
+    canvasRef.current;
 
         if (!canvas) {
           return;
@@ -364,6 +390,18 @@ export default function RemoteSession({
 
           const bitmap =
             await createImageBitmap(frame);
+            if (
+  receivedFrameCountRef.current <= 5 ||
+  receivedFrameCountRef.current % 30 === 0
+) {
+  console.log(
+    "[REMOTE] Rendering frame:",
+    receivedFrameCountRef.current,
+    bitmap.width,
+    "x",
+    bitmap.height,
+  );
+}
 
           if (viewerStoppedRef.current) {
             bitmap.close();
@@ -471,6 +509,10 @@ export default function RemoteSession({
       ) {
         return;
       }
+
+      console.log(
+        "[REMOTE] Scheduling frame render",
+      );
 
       renderAnimationRef.current =
         window.requestAnimationFrame(
@@ -632,9 +674,22 @@ export default function RemoteSession({
               frame =
                 event.data;
             }
-
+            receivedFrameCountRef.current += 1;
             if (!frame) {
               return;
+            }
+            receivedFrameCountRef.current += 1;
+
+            if (
+              receivedFrameCountRef.current <= 5 ||
+              receivedFrameCountRef.current % 30 === 0
+            ) {
+              console.log(
+                "[REMOTE] Frames received:",
+                receivedFrameCountRef.current,
+                "size:",
+                frame.size,
+              );
             }
 
             /*
@@ -1158,6 +1213,34 @@ const handleWheel =
     },
     [sendRemoteCommand],
   );
+  useEffect(() => {
+  const canvas = canvasRef.current;
+
+  if (!canvas) {
+    return;
+  }
+
+  const wheelListener: EventListener = (event) => {
+  handleWheel(
+    event as unknown as WheelEvent<HTMLCanvasElement>,
+  );
+};
+
+  canvas.addEventListener(
+    "wheel",
+    wheelListener,
+    {
+      passive: false,
+    },
+  );
+
+  return () => {
+    canvas.removeEventListener(
+      "wheel",
+      wheelListener,
+    );
+  };
+}, [handleWheel]);
 
 
   /*
@@ -1512,15 +1595,14 @@ const handleWheel =
           <canvas
             ref={canvasRef}
             tabIndex={0}
-            onMouseMove={handleMouseMove}
-            onClick={handleClick}
-            onDoubleClick={handleDoubleClick}
-            onContextMenu={handleContextMenu}
-            onWheel={handleWheel}
-            onKeyDown={handleKeyDown}
-            onMouseDown={() => {
-              canvasRef.current?.focus();
-            }}
+              onMouseMove={handleMouseMove}
+              onClick={handleClick}
+              onDoubleClick={handleDoubleClick}
+              onContextMenu={handleContextMenu}
+              onKeyDown={handleKeyDown}
+              onMouseDown={() => {
+                canvasRef.current?.focus();
+              }}
             style={{
               maxWidth: "100%",
               maxHeight: "100%",
