@@ -8,6 +8,8 @@ from app.models.telemetry import Telemetry
 from app.models.alert import Alert
 from app.models.remote_session import RemoteSession
 from app.api.remote import router as remote_router
+from app.models.user import User
+from app.api.auth import router as auth_router
 
 
 Base.metadata.create_all(bind=engine)
@@ -32,6 +34,7 @@ app.add_middleware(
 app.include_router(agents_router)
 app.include_router(telemetry_router)
 app.include_router(remote_router)
+app.include_router(auth_router)
 
 @app.get("/")
 def root():
