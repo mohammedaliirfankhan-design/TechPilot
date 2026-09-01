@@ -15688,3 +15688,105 @@ body {
     width: 100%;
   }
 }
+
+/* =========================================================
+   TECHPILOT V1 — ACCOUNT / LOGOUT
+   ========================================================= */
+
+.futuristic-sidebar .sidebar-bottom {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  width: 100% !important;
+  margin-top: auto !important;
+  padding-top: 16px !important;
+  border-top: 1px solid rgba(148, 163, 184, 0.10) !important;
+}
+
+.futuristic-sidebar .futuristic-profile {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.futuristic-sidebar .sidebar-logout-button {
+  width: 100% !important;
+  min-height: 42px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 9px !important;
+
+  border: 1px solid rgba(255, 99, 128, 0.28) !important;
+  border-radius: 9px !important;
+
+  background: rgba(255, 70, 105, 0.07) !important;
+  color: #ff9aae !important;
+
+  font-family: inherit !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.08em !important;
+
+  cursor: pointer !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.futuristic-sidebar .sidebar-logout-button:hover {
+  border-color: rgba(255, 99, 128, 0.50) !important;
+  background: rgba(255, 70, 105, 0.12) !important;
+  transform: translateY(-1px) !important;
+}
+
+.futuristic-sidebar .sidebar-logout-button span {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* =========================================================
+   TECHPILOT V1 — TOPBAR LOGOUT
+   ========================================================= */
+
+.topbar-logout-button {
+  min-height: 40px;
+  padding: 0 15px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  border: 1px solid rgba(255, 99, 128, 0.28);
+  border-radius: 9px;
+
+  background: rgba(255, 70, 105, 0.07);
+  color: #ff9aae;
+
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+
+  cursor: pointer;
+
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.topbar-logout-button:hover {
+  border-color: rgba(255, 99, 128, 0.52);
+  background: rgba(255, 70, 105, 0.13);
+  transform: translateY(-1px);
+}
+
+.topbar-logout-button:active {
+  transform: translateY(0);
+}
+
+.topbar-logout-button span {
+  font-size: 15px;
+  line-height: 1;
+}

@@ -308,12 +308,14 @@ function App() {
         onLogout={handleLogout}
       />
 
-      <div className="app-main">
+<div className="app-main">
+
         <Topbar
           page={page}
           title={pageTitles[page]}
           query={query}
           onQueryChange={setQuery}
+          onLogout={handleLogout}
         />
 
         <main className="app-content">

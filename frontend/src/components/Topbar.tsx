@@ -12,6 +12,7 @@ type TopbarProps = {
   title: string;
   query: string;
   onQueryChange: (query: string) => void;
+  onLogout: () => void;
 };
 
 function Topbar({
@@ -19,6 +20,7 @@ function Topbar({
   title,
   query,
   onQueryChange,
+  onLogout,
 }: TopbarProps) {
   const [clock, setClock] =
     useState("");
@@ -137,7 +139,7 @@ function Topbar({
               className="search-icon"
               aria-hidden="true"
             >
-              ⌕
+              âŒ•
             </span>
 
             <input
@@ -173,6 +175,16 @@ function Topbar({
             {clock || "--:--:--"}
           </strong>
         </div>
+
+        <button
+          type="button"
+          className="topbar-logout-button"
+          onClick={onLogout}
+          aria-label="Log out"
+        >
+          <span aria-hidden="true">↪</span>
+          LOG OUT
+        </button>
       </div>
     </header>
   );
