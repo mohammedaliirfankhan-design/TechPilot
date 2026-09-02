@@ -134,7 +134,7 @@ function Automation() {
             </h2>
 
             <p>
-              TechPilot can recommend and
+              TechAIPILOT can recommend and
               execute approved remediation
               while maintaining risk controls,
               auditability, and verification.

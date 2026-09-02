@@ -13,6 +13,7 @@ import {
 
 type DeviceDetailsProps = {
   deviceId: string;
+  token: string;
   onBack: () => void;
 };
 
@@ -41,7 +42,9 @@ function DetailItem({
 function DeviceDetails({
   deviceId,
   onBack,
+  token,
 }: DeviceDetailsProps) {
+
   const [device, setDevice] =
     useState<Agent | null>(null);
 
@@ -59,7 +62,7 @@ function DeviceDetails({
         setLoading(true);
 
         const agents =
-          await getAgents();
+  await getAgents(token);
 
         const matchedAgent =
           agents.find(
@@ -94,7 +97,7 @@ function DeviceDetails({
     return () => {
       cancelled = true;
     };
-  }, [deviceId]);
+  }, [deviceId, token]);
 
   const startRemoteView = async () => {
     if (!device || startingSession) {
@@ -112,6 +115,7 @@ function DeviceDetails({
       const session =
         await createRemoteSession(
           device.device_id,
+          token,
         );
 
       console.log(
@@ -157,7 +161,7 @@ function DeviceDetails({
         </strong>
 
         <p>
-          Loading TechPilot device
+          Loading TechAIPILOT device
           information.
         </p>
       </section>
@@ -177,12 +181,12 @@ function DeviceDetails({
 
         <p>
           The selected endpoint could not
-          be found in the TechPilot inventory.
+          be found in the TechAIPILOT inventory.
         </p>
 
         <button
           type="button"
-          className="techpilot-secondary-button"
+          className="TECHAIPILOT-secondary-button"
           onClick={onBack}
         >
           ← BACK TO DEVICES
@@ -247,7 +251,7 @@ function DeviceDetails({
             <p>
               Establish a secure remote viewing
               and control session with this
-              TechPilot endpoint.
+              TechAIPILOT endpoint.
             </p>
           </div>
 

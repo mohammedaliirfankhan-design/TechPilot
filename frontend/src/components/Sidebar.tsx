@@ -89,7 +89,7 @@ function Sidebar({
           onClick={() => setOpen(true)}
           aria-label="Open navigation"
           aria-expanded={false}
-          aria-controls="techpilot-sidebar"
+          aria-controls="TECHAIPILOT-sidebar"
         >
           <span />
           <span />
@@ -107,7 +107,7 @@ function Sidebar({
       )}
 
       <aside
-        id="techpilot-sidebar"
+        id="TECHAIPILOT-sidebar"
         className={`sidebar futuristic-sidebar ${
           open
             ? "sidebar-open"
@@ -123,18 +123,18 @@ function Sidebar({
             onClick={() =>
               handleNavigate("home")
             }
-            aria-label="Go to TechPilot home"
+            aria-label="Go to TechAIPILOT home"
           >
             <div
               className="brand-mark futuristic-brand-mark"
               aria-hidden="true"
             >
-              <span>TP</span>
+              <span>TA</span>
               <i />
             </div>
 
             <div className="brand-copy">
-              <strong>TECHPILOT</strong>
+              <strong>TECHAIPILOT</strong>
               <span>REMOTE SUPPORT</span>
             </div>
           </button>
@@ -223,7 +223,7 @@ function Sidebar({
               </strong>
 
               <span>
-                TechPilot workspace online
+                TechAIPILOT workspace online
               </span>
             </div>
           </div>

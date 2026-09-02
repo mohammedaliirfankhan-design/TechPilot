@@ -89,7 +89,7 @@ function CreateAccount({
         );
 
       localStorage.setItem(
-        "techpilot_access_token",
+        "TECHAIPILOT_access_token",
         response.access_token,
       );
 
@@ -138,7 +138,7 @@ function CreateAccount({
 
             <div>
               <strong>
-                TECHPILOT
+                TECHAIPILOT
               </strong>
 
               <span>
@@ -160,7 +160,7 @@ function CreateAccount({
             </h1>
 
             <p>
-              Set up your TechPilot
+              Set up your TechAIPILOT
               account to manage
               endpoints and provide
               secure remote support.
@@ -298,7 +298,7 @@ function CreateAccount({
 
         <footer className="auth-footer">
           <span>
-            TECHPILOT
+            TECHAIPILOT
           </span>
 
           <span>

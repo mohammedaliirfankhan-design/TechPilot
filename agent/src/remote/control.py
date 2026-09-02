@@ -188,7 +188,7 @@ class RemoteControlClient:
 
             self.websocket = websocket.create_connection(
                 url,
-                timeout=None,
+                timeout=1,
                 ping_interval=20,
                 ping_timeout=10,
             )
@@ -621,10 +621,47 @@ class RemoteControlClient:
                         f"{type(e).__name__}: {e}"
                     )
 
+            except websocket.WebSocketTimeoutException:
+
+                if not self.running:
+
+                    break
+
+                continue
+
             except websocket.WebSocketConnectionClosedException:
 
                 print(
                     "[CONTROL] Control WebSocket closed"
+                )
+
+                self._reset_connection()
+
+                if self._session_has_ended():
+
+                    print(
+                        f"[CONTROL] Session "
+                        f"{self.session_id} "
+                        f"has ended. "
+                        f"Stopping control client."
+                    )
+
+                    self.running = False
+
+                    break
+
+                print(
+                    "[CONTROL] Reconnecting "
+                    "in 2 seconds..."
+                )
+
+                time.sleep(2)
+
+            except Exception as e:
+
+                print(
+                    f"[CONTROL] Control channel error: "
+                    f"{type(e).__name__}: {e}"
                 )
 
                 self._reset_connection()

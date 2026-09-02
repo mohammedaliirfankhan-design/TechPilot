@@ -5,9 +5,13 @@ import { getAgents, type Agent } from "../api";
 
 type HomeProps = {
   onNavigate: (page: "devices") => void;
+  token: string;
 };
 
-function Home({ onNavigate }: HomeProps) {
+function Home({
+  onNavigate,
+  token,
+}: HomeProps) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -16,7 +20,7 @@ function Home({ onNavigate }: HomeProps) {
 
     async function loadAgents() {
       try {
-        const data = await getAgents();
+        const data = await getAgents(token);
 
         if (!cancelled) {
           setAgents(data);
@@ -37,7 +41,7 @@ function Home({ onNavigate }: HomeProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [token]);
 
   return (
     <div className="home-experience">
@@ -45,7 +49,7 @@ function Home({ onNavigate }: HomeProps) {
         <section className="home-hero glass-card">
           <div className="home-hero-copy">
             <span className="eyebrow">
-              TECHPILOT // REMOTE SUPPORT
+              TECHAIPILOT // REMOTE SUPPORT
             </span>
 
             <h2>
@@ -96,7 +100,7 @@ function Home({ onNavigate }: HomeProps) {
             </strong>
 
             <small>
-              Registered TechPilot agents
+              Registered TechAIPILOT agents
             </small>
           </div>
 
@@ -132,7 +136,7 @@ function Home({ onNavigate }: HomeProps) {
 
           <button
             type="button"
-            className="techpilot-secondary-button"
+            className="TECHAIPILOT-secondary-button"
             onClick={() => onNavigate("devices")}
           >
             OPEN DEVICE INVENTORY

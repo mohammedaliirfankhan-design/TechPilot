@@ -30,7 +30,7 @@ type AuthScreen =
   | "register";
 
 const TOKEN_KEY =
-  "techpilot_access_token";
+   "techpilot_access_token";
 
 const pageTitles: Record<
   Page,
@@ -47,7 +47,7 @@ const pageDescriptions: Record<
   home:
     "Secure remote support for your connected endpoints.",
   devices:
-    "View connected TechPilot agents and start remote support sessions.",
+    "View connected TechAIPILOT agents and start remote support sessions.",
 };
 
 function App() {
@@ -143,9 +143,14 @@ function App() {
   }, []);
 
   const handleAuthenticated = (
-    accessToken: string,
-  ) => {
-    setToken(accessToken);
+  accessToken: string,
+) => {
+  localStorage.setItem(
+    TOKEN_KEY,
+    accessToken,
+  );
+
+  setToken(accessToken);
 
     void getCurrentUser(
       accessToken,
@@ -187,21 +192,6 @@ function App() {
     setSelectedDeviceId(null);
   };
 
-  if (
-    remoteSessionId &&
-    Number.isFinite(
-      Number(remoteSessionId),
-    )
-  ) {
-    return (
-      <RemoteSession
-        sessionId={Number(
-          remoteSessionId,
-        )}
-      />
-    );
-  }
-
   if (authLoading) {
     return (
       <div className="auth-loading">
@@ -211,7 +201,7 @@ function App() {
           </div>
 
           <strong>
-            TECHPILOT
+            TECHAIPILOT
           </strong>
 
           <span>
@@ -248,42 +238,61 @@ function App() {
         }
       />
     );
+  } 
+
+    if (
+    remoteSessionId &&
+    Number.isFinite(
+      Number(remoteSessionId),
+    )
+  ) {
+    return (
+      <RemoteSession
+        sessionId={Number(
+          remoteSessionId,
+        )}
+        token={token}
+      />
+    );
   }
 
   const renderPage = () => {
     if (page === "home") {
       return (
-        <Home
-          onNavigate={() =>
-            handleNavigate("devices")
-          }
-        />
-      );
+  <Home
+    token={token}
+    onNavigate={() =>
+      handleNavigate("devices")
+    }
+  />
+);
     }
 
     if (selectedDeviceId) {
       return (
-        <DeviceDetails
-          deviceId={selectedDeviceId}
-          onBack={() =>
-            setSelectedDeviceId(null)
-          }
-        />
-      );
+  <DeviceDetails
+    deviceId={selectedDeviceId}
+    token={token}
+    onBack={() =>
+      setSelectedDeviceId(null)
+    }
+  />
+);
     }
 
     return (
-      <Devices
-        searchQuery={query}
-        onDeviceSelect={
-          setSelectedDeviceId
-        }
-      />
-    );
+  <Devices
+    searchQuery={query}
+    token={token}
+    onDeviceSelect={
+      setSelectedDeviceId
+    }
+  />
+);
   };
 
   return (
-    <div className="techpilot-app">
+    <div className="TECHAIPILOT-app">
       <div
         className="background-grid"
         aria-hidden="true"
@@ -324,7 +333,7 @@ function App() {
               <div className="page-eyebrow">
                 <span className="eyebrow-dot" />
 
-                TECHPILOT /{" "}
+                TECHAIPILOT /{" "}
                 {pageTitles[
                   page
                 ].toUpperCase()}

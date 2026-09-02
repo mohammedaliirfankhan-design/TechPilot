@@ -8,6 +8,7 @@ from fastapi import (
     HTTPException,
     WebSocket,
     WebSocketDisconnect,
+    status,
 )
 from sqlalchemy.orm import Session
 
@@ -15,12 +16,56 @@ from app.database import get_db
 from app.models.agent import Agent
 from app.models.remote_session import RemoteSession
 from app.services.remote_control import remote_control_manager
+from app.api.auth import get_current_user
+from app.services.auth import decode_access_token
+from app.models.user import User
 
 
 router = APIRouter(
     prefix="/api/v1/remote",
     tags=["Remote Support"],
 )
+
+def authenticate_websocket(
+    websocket: WebSocket,
+    db: Session,
+) -> User | None:
+    token = websocket.query_params.get("token")
+
+    if not token:
+        return None
+
+    user_id = decode_access_token(token)
+
+    if user_id is None:
+        return None
+
+    user = (
+        db.query(User)
+        .filter(User.id == user_id)
+        .first()
+    )
+
+    if not user or not user.is_active:
+        return None
+
+    return user
+
+def user_owns_session(
+    session: RemoteSession,
+    user: User,
+    db: Session,
+) -> bool:
+    agent = (
+        db.query(Agent)
+        .filter(
+            Agent.device_id == session.device_id,
+            Agent.user_id == user.id,
+        )
+        .first()
+    )
+
+    return agent is not None
 
 
 # =========================================================
@@ -538,6 +583,7 @@ async def maybe_end_agent_session(
 def create_remote_session(
     device_id: str,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
 
     agent = (
@@ -551,9 +597,16 @@ def create_remote_session(
     if not agent:
 
         raise HTTPException(
-            status_code=404,
-            detail="Device not found",
-        )
+        status_code=404,
+        detail="Device not found",
+    )
+
+    if agent.user_id != current_user.id:
+
+        raise HTTPException(
+        status_code=403,
+        detail="You do not have access to this device.",
+    )
 
     active_session = (
         db.query(RemoteSession)
@@ -910,10 +963,50 @@ async def remote_session_stream(
     if not session:
 
         await websocket.close(
-            code=1008
+            code=1008,
+            reason="Session not found",
         )
 
         return
+
+    # ---------------------------------------------------------
+    # AUTHENTICATE VIEWER BEFORE ALLOWING ACCESS
+    # ---------------------------------------------------------
+
+    user = authenticate_websocket(
+        websocket,
+        db,
+    )
+
+    if user is None:
+
+        await websocket.close(
+            code=1008,
+            reason="Authentication required",
+        )
+
+        return
+
+    # ---------------------------------------------------------
+    # VERIFY SESSION OWNERSHIP
+    # ---------------------------------------------------------
+
+    if not user_owns_session(
+        session,
+        user,
+        db,
+    ):
+
+        await websocket.close(
+            code=1008,
+            reason="Access denied",
+        )
+
+        return
+
+    # ---------------------------------------------------------
+    # VERIFY SESSION STATE
+    # ---------------------------------------------------------
 
     if session.status not in [
         "CONNECTING",
@@ -927,10 +1020,15 @@ async def remote_session_stream(
         )
 
         await websocket.close(
-            code=1008
+            code=1008,
+            reason="Session is not active",
         )
 
         return
+
+    # ---------------------------------------------------------
+    # CONNECT VIEWER
+    # ---------------------------------------------------------
 
     await remote_stream_hub.connect_viewer(
         session_id,
@@ -975,8 +1073,6 @@ async def remote_session_stream(
             session_id,
             db,
         )
-
-
 # =========================================================
 # AGENT SCREEN STREAM
 # =========================================================
@@ -1155,10 +1251,50 @@ async def remote_control_viewer(
     if not session:
 
         await websocket.close(
-            code=1008
+            code=1008,
+            reason="Session not found",
         )
 
         return
+
+    # ---------------------------------------------------------
+    # AUTHENTICATE VIEWER BEFORE ACCEPTING CONTROL CHANNEL
+    # ---------------------------------------------------------
+
+    user = authenticate_websocket(
+        websocket,
+        db,
+    )
+
+    if user is None:
+
+        await websocket.close(
+            code=1008,
+            reason="Authentication required",
+        )
+
+        return
+
+    # ---------------------------------------------------------
+    # VERIFY SESSION OWNERSHIP
+    # ---------------------------------------------------------
+
+    if not user_owns_session(
+        session,
+        user,
+        db,
+    ):
+
+        await websocket.close(
+            code=1008,
+            reason="Access denied",
+        )
+
+        return
+
+    # ---------------------------------------------------------
+    # VERIFY SESSION STATE
+    # ---------------------------------------------------------
 
     if session.status not in [
         "CONNECTING",
@@ -1166,10 +1302,15 @@ async def remote_control_viewer(
     ]:
 
         await websocket.close(
-            code=1008
+            code=1008,
+            reason="Session is not active",
         )
 
         return
+
+    # ---------------------------------------------------------
+    # ACCEPT AUTHENTICATED VIEWER
+    # ---------------------------------------------------------
 
     await websocket.accept()
 
@@ -1216,8 +1357,6 @@ async def remote_control_viewer(
             f"for session {session_id}: "
             f"{type(e).__name__}: {e}"
         )
-
-
 # =========================================================
 # AGENT CONTROL CHANNEL
 # =========================================================

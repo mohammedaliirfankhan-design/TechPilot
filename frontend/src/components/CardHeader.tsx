@@ -24,7 +24,7 @@ function CardHeader({
 
         <div>
           <div className="card-header-kicker">
-            TECHPILOT // TELEMETRY
+            TECHAIPILOT // TELEMETRY
           </div>
 
           <h2>{title}</h2>

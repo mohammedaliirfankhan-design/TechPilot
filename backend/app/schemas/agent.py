@@ -13,6 +13,7 @@ class AgentRegisterRequest(BaseModel):
 
 class AgentResponse(AgentRegisterRequest):
     id: int
+    user_id: int | None
     registered_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

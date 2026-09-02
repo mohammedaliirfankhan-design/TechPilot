@@ -16,7 +16,7 @@ Base.metadata.create_all(bind=engine)
 
 
 app = FastAPI(
-    title="TechPilot API",
+    title="TechAIPILOT API",
     description="Intelligent IT Operations & Secure Remote Support Platform",
     version="0.1.0",
 )
@@ -39,7 +39,7 @@ app.include_router(auth_router)
 @app.get("/")
 def root():
     return {
-        "product": "TechPilot",
+        "product": "TechAIPILOT",
         "status": "online",
         "version": "0.1.0",
     }
@@ -49,5 +49,5 @@ def root():
 def health_check():
     return {
         "status": "healthy",
-        "service": "TechPilot API",
+        "service": "TechAIPILOT API",
     }

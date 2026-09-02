@@ -164,15 +164,35 @@ export async function getCurrentUser(
    AGENTS
    ========================================================= */
 
-export async function getAgents(): Promise<Agent[]> {
+export async function getAgents(
+  token: string,
+): Promise<Agent[]> {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/agents/`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
   );
 
   if (!response.ok) {
-    throw new Error(
-      `Failed to fetch agents: ${response.status}`,
-    );
+    let message =
+      `Failed to fetch agents: ${response.status}`;
+
+    try {
+      const error =
+        await response.json();
+
+      if (typeof error.detail === "string") {
+        message = error.detail;
+      }
+    } catch {
+      // Keep default message.
+    }
+
+    throw new Error(message);
   }
 
   return response.json();
@@ -185,6 +205,7 @@ export async function getAgents(): Promise<Agent[]> {
 
 export async function createRemoteSession(
   deviceId: string,
+  token: string,
 ): Promise<RemoteSession> {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/remote/sessions?device_id=${encodeURIComponent(
@@ -192,6 +213,9 @@ export async function createRemoteSession(
     )}`,
     {
       method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     },
   );
 
@@ -264,11 +288,15 @@ export async function getRemoteSession(
 
 export async function disconnectRemoteSession(
   sessionId: number,
+  token: string,
 ): Promise<void> {
   const response = await fetch(
     `${API_BASE_URL}/api/v1/remote/sessions/${sessionId}/disconnect`,
     {
       method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     },
   );
 
@@ -277,7 +305,8 @@ export async function disconnectRemoteSession(
       await response.text();
 
     throw new Error(
-      `Failed to disconnect remote session: ${response.status} ${errorText}`,
+      errorText ||
+        "Failed to disconnect remote session.",
     );
   }
 }

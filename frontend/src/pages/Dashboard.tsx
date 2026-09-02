@@ -582,7 +582,7 @@ function Dashboard({ onNavigate }: DashboardProps) {
             </span>
 
             <strong>
-              TechPilot monitoring fabric
+              TechAIPILOT monitoring fabric
             </strong>
           </div>
 

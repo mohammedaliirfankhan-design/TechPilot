@@ -107,7 +107,7 @@ function Topbar({
     <header className="topbar futuristic-topbar">
       <div className="breadcrumbs futuristic-breadcrumbs">
         <span className="breadcrumb-system">
-          TECHPILOT
+          TECHAIPILOT
         </span>
 
         <b>/</b>

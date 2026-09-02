@@ -179,7 +179,7 @@ function AuditLogs() {
         <section className="glass-card table-card audit-card futuristic-audit-card audit-3d-section">
           <CardHeader
             title="Audit Trail"
-            subtitle="Security and administrative activity across TechPilot."
+            subtitle="Security and administrative activity across TechAIPILOT."
             action="Export"
           />
 

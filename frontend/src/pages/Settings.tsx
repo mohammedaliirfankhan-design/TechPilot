@@ -54,7 +54,7 @@ function Settings() {
             </h2>
 
             <p>
-              Configure TechPilot behavior, monitoring, notifications,
+              Configure TechAIPILOT behavior, monitoring, notifications,
               security, and backend connectivity from one centralized
               control surface.
             </p>
@@ -107,7 +107,7 @@ function Settings() {
         <section className="glass-card settings-card futuristic-settings-card">
           <CardHeader
             title="Workspace"
-            subtitle="Manage your TechPilot workspace configuration."
+            subtitle="Manage your TechAIPILOT workspace configuration."
             action={
               saveState === "saving"
                 ? "Saving..."
@@ -136,7 +136,7 @@ function Settings() {
               <input
                 id="workspace-name"
                 type="text"
-                defaultValue="TechPilot Operations"
+                defaultValue="TechAIPILOT Operations"
               />
 
               <span className="field-signal">IDENTIFIER VALID</span>
@@ -158,7 +158,7 @@ function Settings() {
               <div>
                 <strong>Workspace status</strong>
 
-                <span>Your TechPilot workspace is operational.</span>
+                <span>Your TechAIPILOT workspace is operational.</span>
               </div>
 
               <StatusBadge label="Operational" tone="healthy" />
@@ -174,7 +174,7 @@ function Settings() {
         <section className="glass-card settings-card futuristic-settings-card">
           <CardHeader
             title="Platform"
-            subtitle="Configure core TechPilot platform behavior."
+            subtitle="Configure core TechAIPILOT platform behavior."
             action="Configuration"
           />
 
@@ -275,8 +275,7 @@ function Settings() {
               <strong>Backend not connected</strong>
 
               <p>
-                TechPilot is currently running with mock data. Backend
-                integration will be added after the API contract is finalized.
+                TechAIPILOT is connected to the backend services and operating with live platform data.
               </p>
             </div>
 

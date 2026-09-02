@@ -13,10 +13,12 @@ import {
 type DevicesProps = {
   searchQuery?: string;
   onDeviceSelect?: (deviceId: string) => void;
+  token: string;
 };
 
 function Devices({
   searchQuery = "",
+  token,
   onDeviceSelect,
 }: DevicesProps) {
   const [agents, setAgents] =
@@ -36,7 +38,7 @@ function Devices({
         setLoading(true);
         setError(null);
 
-        const data = await getAgents();
+        const data = await getAgents(token);
 
         if (!cancelled) {
           setAgents(data);
@@ -61,7 +63,7 @@ function Devices({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [token]);
 
   const filteredAgents = useMemo(() => {
     const query =
@@ -129,7 +131,7 @@ function Devices({
 
               <p>
                 Synchronizing with the
-                TechPilot agent API.
+                TechAIPILOT agent API.
               </p>
             </div>
           )}
@@ -153,7 +155,7 @@ function Devices({
                 </strong>
 
                 <p>
-                  No registered TechPilot agents
+                  No registered TechAIPILOT agents
                   match your search.
                 </p>
               </div>

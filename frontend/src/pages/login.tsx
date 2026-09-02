@@ -67,7 +67,7 @@ function Login({
         );
 
       localStorage.setItem(
-        "techpilot_access_token",
+        "TECHAIPILOT_access_token",
         response.access_token,
       );
 
@@ -116,7 +116,7 @@ function Login({
 
             <div>
               <strong>
-                TECHPILOT
+                TECHAIPILOT
               </strong>
 
               <span>
@@ -255,7 +255,7 @@ function Login({
 
         <footer className="auth-footer">
           <span>
-            TECHPILOT
+            TECHAIPILOT
           </span>
 
           <span>

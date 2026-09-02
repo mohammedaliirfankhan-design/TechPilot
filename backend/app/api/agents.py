@@ -1,11 +1,13 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.agent import Agent
+from app.models.user import User
 from app.schemas.agent import AgentRegisterRequest, AgentResponse
+from app.api.auth import get_current_user
 
 
 router = APIRouter(
@@ -24,7 +26,9 @@ def register_agent(
 ):
     existing_agent = (
         db.query(Agent)
-        .filter(Agent.device_id == agent_data.device_id)
+        .filter(
+            Agent.device_id == agent_data.device_id
+        )
         .first()
     )
 
@@ -45,15 +49,68 @@ def register_agent(
 
     return agent
 
+
 @router.get(
     "/",
     response_model=list[AgentResponse],
 )
 def get_agents(
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    agents = db.query(Agent).all()
+    agents = (
+        db.query(Agent)
+        .filter(
+            Agent.user_id == current_user.id
+        )
+        .all()
+    )
+
     return agents
+
+
+@router.post(
+    "/{device_id}/claim",
+    response_model=AgentResponse,
+)
+def claim_agent(
+    device_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    agent = (
+        db.query(Agent)
+        .filter(
+            Agent.device_id == device_id
+        )
+        .first()
+    )
+
+    if not agent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found.",
+        )
+
+    if agent.user_id is not None:
+        if agent.user_id == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This device is already assigned to your account.",
+            )
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This device is already assigned to another account.",
+        )
+
+    agent.user_id = current_user.id
+
+    db.commit()
+    db.refresh(agent)
+
+    return agent
+
 
 @router.post("/{device_id}/heartbeat")
 def agent_heartbeat(
@@ -62,7 +119,9 @@ def agent_heartbeat(
 ):
     agent = (
         db.query(Agent)
-        .filter(Agent.device_id == device_id)
+        .filter(
+            Agent.device_id == device_id
+        )
         .first()
     )
 

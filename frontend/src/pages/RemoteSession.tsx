@@ -52,6 +52,7 @@ type RemoteStatus =
 
 type RemoteSessionProps = {
   sessionId?: number;
+  token: string;
 };
 
 
@@ -63,6 +64,7 @@ const CONTROL_RETRY_MS = 1000;
 
 export default function RemoteSession({
   sessionId,
+  token,
 }: RemoteSessionProps) {
 
   /*
@@ -191,26 +193,36 @@ export default function RemoteSession({
    */
 
   const buildWebSocketUrl =
-    useCallback(
-      (path: string) => {
+  useCallback(
+    (path: string) => {
 
-        const hostname =
-          window.location.hostname;
+      const hostname =
+        window.location.hostname;
 
-        const protocol =
-          window.location.protocol === "https:"
-            ? "wss:"
-            : "ws:";
+      const protocol =
+        window.location.protocol === "https:"
+          ? "wss:"
+          : "ws:";
 
-        return (
-          `${protocol}//${hostname}:8000` +
-          `/api/v1/remote/sessions/` +
-          `${effectiveSessionId}` +
-          path
-        );
-      },
-      [effectiveSessionId],
-    );
+      const baseUrl =
+        `${protocol}//${hostname}:8000` +
+        `/api/v1/remote/sessions/` +
+        `${effectiveSessionId}` +
+        path;
+
+      const separator =
+        path.includes("?")
+          ? "&"
+          : "?";
+
+      return (
+        `${baseUrl}` +
+        `${separator}` +
+        `token=${encodeURIComponent(token)}`
+      );
+    },
+    [effectiveSessionId, token],
+  );
 
 
   /*
@@ -1394,6 +1406,7 @@ const handleWheel =
 
         await disconnectRemoteSession(
           effectiveSessionId,
+          token,
         );
 
       } catch (error) {
@@ -1489,7 +1502,7 @@ const handleWheel =
               fontSize: "16px",
             }}
           >
-            TechPilot Remote Session
+            TechAIPILOT Remote Session
           </strong>
 
           <div

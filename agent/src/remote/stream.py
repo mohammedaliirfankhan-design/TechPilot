@@ -202,7 +202,7 @@ class RemoteScreenStreamer:
             self.websocket = (
                 websocket.create_connection(
                     url,
-                    timeout=None,
+                    timeout=1,
                     ping_interval=20,
                     ping_timeout=10,
                 )

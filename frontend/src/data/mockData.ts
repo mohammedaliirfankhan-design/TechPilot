@@ -39,7 +39,7 @@ export type Device = {
   architecture: string;
   osVersion: string;
 
-  // TechPilot Agent
+  // TechAIPILOT Agent
   agentVersion: string;
   agentStatus: string;
   lastHeartbeat: string;
@@ -128,7 +128,7 @@ export const devices: Device[] = [
     architecture: "64-bit",
     osVersion: "Windows 11 23H2",
 
-    // TechPilot Agent
+    // TechAIPILOT Agent
     agentVersion: "1.0.0",
     agentStatus: "Running",
     lastHeartbeat: "30 sec ago",
@@ -187,7 +187,7 @@ export const devices: Device[] = [
     architecture: "64-bit",
     osVersion: "Windows 11 23H2",
 
-    // TechPilot Agent
+    // TechAIPILOT Agent
     agentVersion: "1.0.0",
     agentStatus: "Running",
     lastHeartbeat: "30 sec ago",
@@ -246,7 +246,7 @@ export const devices: Device[] = [
     architecture: "64-bit",
     osVersion: "Windows 10 22H2",
 
-    // TechPilot Agent
+    // TechAIPILOT Agent
     agentVersion: "1.0.0",
     agentStatus: "Running",
     lastHeartbeat: "30 sec ago",
@@ -305,7 +305,7 @@ export const devices: Device[] = [
     architecture: "64-bit",
     osVersion: "Windows 11 23H2",
 
-    // TechPilot Agent
+    // TechAIPILOT Agent
     agentVersion: "1.0.0",
     agentStatus: "Offline",
     lastHeartbeat: "38 min ago",
@@ -364,7 +364,7 @@ export const devices: Device[] = [
     architecture: "64-bit",
     osVersion: "Windows 11 23H2",
 
-    // TechPilot Agent
+    // TechAIPILOT Agent
     agentVersion: "1.0.0",
     agentStatus: "Running",
     lastHeartbeat: "30 sec ago",
@@ -423,7 +423,7 @@ export const devices: Device[] = [
     architecture: "64-bit",
     osVersion: "Windows 11 23H2",
 
-    // TechPilot Agent
+    // TechAIPILOT Agent
     agentVersion: "1.0.0",
     agentStatus: "Running",
     lastHeartbeat: "30 sec ago",
