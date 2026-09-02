@@ -2,9 +2,12 @@ import ctypes
 import json
 import time
 import urllib.request
+from urllib.parse import quote
 
 import websocket
 import pyautogui
+
+from techpilot_agent.config import AGENT_TOKEN
 
 
 pyautogui.FAILSAFE = True
@@ -27,9 +30,10 @@ class RemoteControlClient:
         session_id: int,
     ):
         print(
-    f"[CONTROL] LOADED CONTROL MODULE FROM: {__file__}",
-    flush=True
-)
+            f"[CONTROL] LOADED CONTROL MODULE FROM: {__file__}",
+            flush=True
+        )
+
         self.server_url = server_url
         self.session_id = session_id
 
@@ -56,10 +60,16 @@ class RemoteControlClient:
             .replace("https://", "wss://")
         )
 
+        token = quote(
+            AGENT_TOKEN,
+            safe="",
+        )
+
         return (
             f"{ws_url}"
             f"/api/v1/remote/sessions/"
             f"{self.session_id}/agent-control"
+            f"?token={token}"
         )
 
     # =========================================================
@@ -118,9 +128,6 @@ class RemoteControlClient:
 
             error_text = str(e).lower()
 
-            # Some websocket-client versions do not raise
-            # WebSocketBadStatusException consistently for
-            # a rejected 403 handshake. Detect it here too.
             is_403 = (
                 status_code == 403
                 or "403 forbidden" in error_text
@@ -181,7 +188,8 @@ class RemoteControlClient:
         url = self._build_ws_url()
 
         print(
-            f"[CONTROL] Connecting to: {url}"
+            f"[CONTROL] Connecting to: "
+            f"{url.split('?')[0]}"
         )
 
         try:
@@ -216,11 +224,6 @@ class RemoteControlClient:
                 f"HTTP {status_code}"
             )
 
-            # -------------------------------------------------
-            # 403 means the backend explicitly rejected this
-            # session. NEVER reconnect this same socket.
-            # -------------------------------------------------
-
             if status_code == 403:
 
                 print(
@@ -251,12 +254,6 @@ class RemoteControlClient:
                 flush=True,
             )
 
-            # -------------------------------------------------
-            # Treat HTTP 403 as a terminal session failure.
-            # Some websocket-client versions route 403
-            # handshake errors through generic Exception.
-            # -------------------------------------------------
-
             if (
                 "403 forbidden" in error_text
                 or "handshake status 403" in error_text
@@ -281,7 +278,7 @@ class RemoteControlClient:
             return False
 
     # =========================================================
-    # REMOTE SCROLL - DIAGNOSTIC VERSION
+    # REMOTE SCROLL
     # =========================================================
 
     def _native_scroll(self, amount: int):
@@ -296,10 +293,12 @@ class RemoteControlClient:
             amount = int(amount)
 
             if amount == 0:
+
                 print(
                     "[CONTROL] >>> Scroll amount is zero",
                     flush=True
                 )
+
                 return
 
             print(
@@ -357,13 +356,8 @@ class RemoteControlClient:
 
         if command_type == "mouse_move":
 
-            x = int(
-                command["x"]
-            )
-
-            y = int(
-                command["y"]
-            )
+            x = int(command["x"])
+            y = int(command["y"])
 
             pyautogui.moveTo(
                 x,
@@ -380,13 +374,8 @@ class RemoteControlClient:
 
         elif command_type == "mouse_click":
 
-            x = int(
-                command["x"]
-            )
-
-            y = int(
-                command["y"]
-            )
+            x = int(command["x"])
+            y = int(command["y"])
 
             button = command.get(
                 "button",
@@ -493,7 +482,6 @@ class RemoteControlClient:
             )
 
             if amount == 0:
-
                 return
 
             print(
@@ -521,17 +509,8 @@ class RemoteControlClient:
 
         while self.running:
 
-            # -------------------------------------------------
-            # DO NOT CONNECT AFTER TERMINAL FAILURE
-            # -------------------------------------------------
-
             if self.terminal_failure:
-
                 break
-
-            # -------------------------------------------------
-            # CONNECT
-            # -------------------------------------------------
 
             if self.websocket is None:
 
@@ -539,7 +518,6 @@ class RemoteControlClient:
 
                 if not connected:
 
-                    # 403 / terminal failure
                     if self.terminal_failure:
 
                         print(
@@ -550,7 +528,6 @@ class RemoteControlClient:
 
                         break
 
-                    # Session was explicitly ended
                     if self._session_has_ended():
 
                         print(
@@ -578,7 +555,6 @@ class RemoteControlClient:
                 message = self.websocket.recv()
 
                 if message is None:
-
                     continue
 
                 print(
@@ -624,7 +600,6 @@ class RemoteControlClient:
             except websocket.WebSocketTimeoutException:
 
                 if not self.running:
-
                     break
 
                 continue
@@ -633,35 +608,6 @@ class RemoteControlClient:
 
                 print(
                     "[CONTROL] Control WebSocket closed"
-                )
-
-                self._reset_connection()
-
-                if self._session_has_ended():
-
-                    print(
-                        f"[CONTROL] Session "
-                        f"{self.session_id} "
-                        f"has ended. "
-                        f"Stopping control client."
-                    )
-
-                    self.running = False
-
-                    break
-
-                print(
-                    "[CONTROL] Reconnecting "
-                    "in 2 seconds..."
-                )
-
-                time.sleep(2)
-
-            except Exception as e:
-
-                print(
-                    f"[CONTROL] Control channel error: "
-                    f"{type(e).__name__}: {e}"
                 )
 
                 self._reset_connection()
@@ -726,11 +672,9 @@ class RemoteControlClient:
         if self.websocket:
 
             try:
-
                 self.websocket.close()
 
             except Exception:
-
                 pass
 
         self.websocket = None

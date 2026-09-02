@@ -2,9 +2,12 @@ import json
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import quote
 
 import websocket
 from websocket import WebSocketBadStatusException
+
+from techpilot_agent.config import AGENT_TOKEN
 
 from .screen import ScreenCapture
 
@@ -46,11 +49,17 @@ class RemoteScreenStreamer:
             .replace("https://", "wss://")
         )
 
+        token = quote(
+            AGENT_TOKEN,
+            safe="",
+        )
+
         return (
             f"{ws_url}"
             f"/api/v1/remote/sessions/"
             f"{self.session_id}"
             f"/agent-stream"
+            f"?token={token}"
         )
 
     # =========================================================
@@ -107,10 +116,7 @@ class RemoteScreenStreamer:
                 f"HTTP error: {e.code}"
             )
 
-            # If backend no longer recognizes this session,
-            # treat it as ended.
             if e.code in (403, 404):
-
                 return "ENDED"
 
             return None
@@ -125,9 +131,6 @@ class RemoteScreenStreamer:
 
             error_text = str(e).lower()
 
-            # Some websocket-client versions do not raise
-            # WebSocketBadStatusException consistently for
-            # a rejected 403 handshake. Detect it here too.
             is_403 = (
                 status_code == 403
                 or "403 forbidden" in error_text
@@ -180,7 +183,6 @@ class RemoteScreenStreamer:
 
     def connect(self):
 
-        # Never reconnect after terminal failure.
         if self.terminal_failure:
 
             print(
@@ -194,7 +196,8 @@ class RemoteScreenStreamer:
         url = self._build_ws_url()
 
         print(
-            f"[REMOTE] Connecting to: {url}"
+            f"[REMOTE] Connecting to: "
+            f"{url.split('?')[0]}"
         )
 
         try:
@@ -231,11 +234,6 @@ class RemoteScreenStreamer:
                 f"HTTP {status_code}"
             )
 
-            # -------------------------------------------------
-            # 403 = backend explicitly rejected this session.
-            # This session must NEVER reconnect.
-            # -------------------------------------------------
-
             if status_code == 403:
 
                 print(
@@ -264,12 +262,6 @@ class RemoteScreenStreamer:
                 f"{type(e).__name__}: {e}",
                 flush=True,
             )
-
-            # -------------------------------------------------
-            # Treat HTTP 403 as a terminal session failure.
-            # Some websocket-client versions route 403
-            # handshake errors through generic Exception.
-            # -------------------------------------------------
 
             if (
                 "403 forbidden" in error_text
@@ -312,10 +304,6 @@ class RemoteScreenStreamer:
 
             while self.running:
 
-                # -------------------------------------------------
-                # TERMINAL FAILURE
-                # -------------------------------------------------
-
                 if self.terminal_failure:
 
                     print(
@@ -327,15 +315,10 @@ class RemoteScreenStreamer:
 
                     break
 
-                # -------------------------------------------------
-                # CONNECT
-                # -------------------------------------------------
-
                 if self.websocket is None:
 
                     if not self.connect():
 
-                        # Terminal failure.
                         if self.terminal_failure:
 
                             print(
@@ -346,7 +329,6 @@ class RemoteScreenStreamer:
 
                             break
 
-                        # Session was explicitly ended.
                         if self._session_has_ended():
 
                             print(
@@ -371,17 +353,35 @@ class RemoteScreenStreamer:
 
                         continue
 
-                # -------------------------------------------------
-                # CAPTURE + SEND
-                # -------------------------------------------------
-
                 try:
 
                     start = time.perf_counter()
 
                     frame = self.capture.capture()
 
-                    self.websocket.send_binary(frame)
+                    # -------------------------------------------------
+                    # IMPORTANT:
+                    # Capture the current WebSocket reference locally.
+                    #
+                    # The session monitor can close/reset
+                    # self.websocket at the same time the streaming
+                    # loop is preparing to send a frame.
+                    #
+                    # Using a local reference prevents:
+                    # AttributeError: 'NoneType' object has no
+                    # attribute 'send_binary'
+                    # -------------------------------------------------
+
+                    ws = self.websocket
+
+                    if ws is None:
+
+                        if not self.running:
+                            break
+
+                        continue
+
+                    ws.send_binary(frame)
 
                     elapsed = (
                         time.perf_counter()
@@ -412,7 +412,6 @@ class RemoteScreenStreamer:
 
                     self._reset_connection()
 
-                    # Check whether the session ended.
                     if self._session_has_ended():
 
                         print(
@@ -479,11 +478,9 @@ class RemoteScreenStreamer:
         if self.websocket:
 
             try:
-
                 self.websocket.close()
 
             except Exception:
-
                 pass
 
         self.websocket = None
@@ -499,11 +496,9 @@ class RemoteScreenStreamer:
         self._reset_connection()
 
         try:
-
             self.capture.close()
 
         except Exception:
-
             pass
 
         print(

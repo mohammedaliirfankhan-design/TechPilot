@@ -19,12 +19,17 @@ from app.services.remote_control import remote_control_manager
 from app.api.auth import get_current_user
 from app.services.auth import decode_access_token
 from app.models.user import User
+from app.security.agent_auth import (
+    get_current_agent,
+    authenticate_agent_websocket,
+)
 
 
 router = APIRouter(
     prefix="/api/v1/remote",
     tags=["Remote Support"],
 )
+
 
 def authenticate_websocket(
     websocket: WebSocket,
@@ -51,6 +56,7 @@ def authenticate_websocket(
 
     return user
 
+
 def user_owns_session(
     session: RemoteSession,
     user: User,
@@ -71,37 +77,6 @@ def user_owns_session(
 # =========================================================
 # IN-MEMORY REMOTE STREAM HUB
 # =========================================================
-#
-# Frame flow:
-#
-#     AGENT
-#       |
-#       | JPEG frame
-#       v
-#   latest_frame
-#       |
-#       | frame_version increments
-#       v
-#     VIEWER
-#
-# The important rule is:
-#
-#     LATEST FRAME WINS
-#
-# We intentionally do NOT queue every frame.
-#
-# If the agent produces:
-#
-#     101 -> 102 -> 103 -> 104
-#
-# while the viewer is still processing 101, the viewer
-# should eventually receive 104 rather than processing
-# all the old frames.
-#
-# A Condition + monotonically increasing frame_version is
-# used instead of asyncio.Event. This prevents a missed
-# notification from leaving the viewer waiting forever.
-# =========================================================
 
 
 class _StreamChannel:
@@ -114,14 +89,10 @@ class _StreamChannel:
 
         self.latest_frame: Optional[bytes] = None
 
-        # Increments every time a new frame arrives.
         self.frame_version: int = 0
 
-        # Protects channel state and wakes the viewer when
-        # a new frame or connection state change occurs.
         self.condition = asyncio.Condition()
 
-        # True when the entire stream channel is being closed.
         self.closed: bool = False
 
 
@@ -182,7 +153,6 @@ class _RemoteStreamHub:
 
             channel.condition.notify_all()
 
-        # Close an older agent connection if one exists.
         if (
             old_agent is not None
             and old_agent is not websocket
@@ -223,7 +193,6 @@ class _RemoteStreamHub:
 
             channel.condition.notify_all()
 
-        # Only one viewer is allowed per session.
         if (
             old_viewer is not None
             and old_viewer is not websocket
@@ -252,15 +221,10 @@ class _RemoteStreamHub:
 
         async with channel.condition:
 
-            # Replace the old frame.
             channel.latest_frame = frame
 
-            # This is the key part.
-            #
-            # Every received frame gets a unique version.
             channel.frame_version += 1
 
-            # Wake the viewer immediately.
             channel.condition.notify_all()
 
     # =====================================================
@@ -277,18 +241,12 @@ class _RemoteStreamHub:
             session_id
         )
 
-        # Start from the current frame version.
         last_sent_version = 0
 
         while True:
 
             async with channel.condition:
 
-                # Wait until there is genuinely a newer frame.
-                #
-                # This avoids the Event race condition where
-                # a notification could be consumed/cleared
-                # incorrectly.
                 await channel.condition.wait_for(
                     lambda:
                         channel.closed
@@ -300,8 +258,6 @@ class _RemoteStreamHub:
                         )
                 )
 
-                # Viewer has been replaced or the entire
-                # channel has been closed.
                 if (
                     channel.closed
                     or channel.viewer is not websocket
@@ -317,15 +273,6 @@ class _RemoteStreamHub:
                 if not frame:
                     continue
 
-            # -------------------------------------------------
-            # IMPORTANT:
-            #
-            # We intentionally send OUTSIDE the condition.
-            #
-            # A slow WebSocket send must never block the agent
-            # from delivering the next frame.
-            # -------------------------------------------------
-
             try:
 
                 await websocket.send_bytes(
@@ -336,12 +283,7 @@ class _RemoteStreamHub:
 
                 raise
 
-            # Mark this frame as delivered.
             last_sent_version = current_version
-
-            # If another frame arrived while the previous
-            # frame was being sent, the next loop iteration
-            # immediately picks up the newer version.
 
     # =====================================================
     # DISCONNECT VIEWER
@@ -364,8 +306,6 @@ class _RemoteStreamHub:
 
         async with channel.condition:
 
-            # If a different viewer has already replaced
-            # this socket, do not disconnect the new viewer.
             if (
                 websocket is not None
                 and channel.viewer is not websocket
@@ -408,7 +348,6 @@ class _RemoteStreamHub:
 
         async with channel.condition:
 
-            # Do not disconnect a replacement agent.
             if (
                 websocket is not None
                 and channel.agent is not websocket
@@ -463,7 +402,6 @@ class _RemoteStreamHub:
 
             channel.condition.notify_all()
 
-        # Close sockets outside the lock.
         for socket in (
             agent_socket,
             viewer_socket,
@@ -478,7 +416,6 @@ class _RemoteStreamHub:
                 except Exception:
                     pass
 
-        # Remove the channel.
         async with self.channels_lock:
 
             current = self.channels.get(
@@ -536,7 +473,6 @@ async def maybe_end_agent_session(
         )
     )
 
-    # The agent still has at least one active channel.
     if (
         screen_connected
         or control_connected
@@ -597,16 +533,16 @@ def create_remote_session(
     if not agent:
 
         raise HTTPException(
-        status_code=404,
-        detail="Device not found",
-    )
+            status_code=404,
+            detail="Device not found",
+        )
 
     if agent.user_id != current_user.id:
 
         raise HTTPException(
-        status_code=403,
-        detail="You do not have access to this device.",
-    )
+            status_code=403,
+            detail="You do not have access to this device.",
+        )
 
     active_session = (
         db.query(RemoteSession)
@@ -671,7 +607,19 @@ def create_remote_session(
 def get_pending_session(
     device_id: str,
     db: Session = Depends(get_db),
+    current_agent: Agent = Depends(get_current_agent),
 ):
+
+    # -----------------------------------------------------
+    # VERIFY AGENT CREDENTIAL MATCHES DEVICE
+    # -----------------------------------------------------
+
+    if current_agent.device_id != device_id:
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Agent credential does not match device.",
+        )
 
     session = (
         db.query(RemoteSession)
@@ -718,6 +666,7 @@ def get_pending_session(
 def accept_remote_session(
     session_id: int,
     db: Session = Depends(get_db),
+    current_agent: Agent = Depends(get_current_agent),
 ):
 
     session = (
@@ -733,6 +682,17 @@ def accept_remote_session(
         raise HTTPException(
             status_code=404,
             detail="Remote session not found",
+        )
+
+    # -----------------------------------------------------
+    # VERIFY AGENT OWNS THE SESSION'S DEVICE
+    # -----------------------------------------------------
+
+    if current_agent.device_id != session.device_id:
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Agent credential does not match session device.",
         )
 
     if session.status != "REQUESTED":
@@ -775,6 +735,7 @@ def accept_remote_session(
 def connect_remote_session(
     session_id: int,
     db: Session = Depends(get_db),
+    current_agent: Agent = Depends(get_current_agent),
 ):
 
     session = (
@@ -790,6 +751,17 @@ def connect_remote_session(
         raise HTTPException(
             status_code=404,
             detail="Remote session not found",
+        )
+
+    # -----------------------------------------------------
+    # VERIFY AGENT OWNS THE SESSION'S DEVICE
+    # -----------------------------------------------------
+
+    if current_agent.device_id != session.device_id:
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Agent credential does not match session device.",
         )
 
     if session.status != "ACCEPTED":
@@ -832,6 +804,7 @@ def connect_remote_session(
 def get_remote_session(
     session_id: int,
     db: Session = Depends(get_db),
+    current_agent: Agent = Depends(get_current_agent),
 ):
 
     session = (
@@ -847,6 +820,17 @@ def get_remote_session(
         raise HTTPException(
             status_code=404,
             detail="Remote session not found",
+        )
+
+    # -----------------------------------------------------
+    # VERIFY AGENT OWNS THE SESSION'S DEVICE
+    # -----------------------------------------------------
+
+    if current_agent.device_id != session.device_id:
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Agent credential does not match session device.",
         )
 
     return {
@@ -869,6 +853,7 @@ def get_remote_session(
 async def disconnect_remote_session(
     session_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
 
     session = (
@@ -884,6 +869,17 @@ async def disconnect_remote_session(
         raise HTTPException(
             status_code=404,
             detail="Remote session not found",
+        )
+
+    if not user_owns_session(
+        session,
+        current_user,
+        db,
+    ):
+
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this session.",
         )
 
     if session.status != "ENDED":
@@ -903,12 +899,10 @@ async def disconnect_remote_session(
             f"{session_id} marked ENDED"
         )
 
-    # Close the complete stream channel.
     await remote_stream_hub.disconnect_session(
         session_id
     )
 
-    # Close the control channel.
     try:
 
         await remote_control_manager.disconnect_agent(
@@ -969,10 +963,6 @@ async def remote_session_stream(
 
         return
 
-    # ---------------------------------------------------------
-    # AUTHENTICATE VIEWER BEFORE ALLOWING ACCESS
-    # ---------------------------------------------------------
-
     user = authenticate_websocket(
         websocket,
         db,
@@ -987,10 +977,6 @@ async def remote_session_stream(
 
         return
 
-    # ---------------------------------------------------------
-    # VERIFY SESSION OWNERSHIP
-    # ---------------------------------------------------------
-
     if not user_owns_session(
         session,
         user,
@@ -1003,10 +989,6 @@ async def remote_session_stream(
         )
 
         return
-
-    # ---------------------------------------------------------
-    # VERIFY SESSION STATE
-    # ---------------------------------------------------------
 
     if session.status not in [
         "CONNECTING",
@@ -1025,10 +1007,6 @@ async def remote_session_stream(
         )
 
         return
-
-    # ---------------------------------------------------------
-    # CONNECT VIEWER
-    # ---------------------------------------------------------
 
     await remote_stream_hub.connect_viewer(
         session_id,
@@ -1073,6 +1051,8 @@ async def remote_session_stream(
             session_id,
             db,
         )
+
+
 # =========================================================
 # AGENT SCREEN STREAM
 # =========================================================
@@ -1098,10 +1078,46 @@ async def remote_agent_stream(
     if not session:
 
         await websocket.close(
-            code=1008
+            code=1008,
+            reason="Session not found",
         )
 
         return
+
+    # ---------------------------------------------------------
+    # AUTHENTICATE AGENT BEFORE ACCEPTING WEBSOCKET
+    # ---------------------------------------------------------
+
+    current_agent = authenticate_agent_websocket(
+        websocket,
+        db,
+    )
+
+    if current_agent is None:
+
+        await websocket.close(
+            code=1008,
+            reason="Agent authentication required",
+        )
+
+        return
+
+    # ---------------------------------------------------------
+    # VERIFY AGENT OWNS THE SESSION DEVICE
+    # ---------------------------------------------------------
+
+    if current_agent.device_id != session.device_id:
+
+        await websocket.close(
+            code=1008,
+            reason="Agent credential does not match session device",
+        )
+
+        return
+
+    # ---------------------------------------------------------
+    # VERIFY SESSION STATE
+    # ---------------------------------------------------------
 
     if session.status not in [
         "CONNECTING",
@@ -1115,10 +1131,15 @@ async def remote_agent_stream(
         )
 
         await websocket.close(
-            code=1008
+            code=1008,
+            reason="Session is not active",
         )
 
         return
+
+    # ---------------------------------------------------------
+    # ACCEPT AUTHENTICATED AGENT CONNECTION
+    # ---------------------------------------------------------
 
     await remote_stream_hub.connect_agent(
         session_id,
@@ -1225,7 +1246,6 @@ async def remote_agent_stream(
             db,
         )
 
-
 # =========================================================
 # VIEWER CONTROL CHANNEL
 # =========================================================
@@ -1257,10 +1277,6 @@ async def remote_control_viewer(
 
         return
 
-    # ---------------------------------------------------------
-    # AUTHENTICATE VIEWER BEFORE ACCEPTING CONTROL CHANNEL
-    # ---------------------------------------------------------
-
     user = authenticate_websocket(
         websocket,
         db,
@@ -1275,10 +1291,6 @@ async def remote_control_viewer(
 
         return
 
-    # ---------------------------------------------------------
-    # VERIFY SESSION OWNERSHIP
-    # ---------------------------------------------------------
-
     if not user_owns_session(
         session,
         user,
@@ -1292,10 +1304,6 @@ async def remote_control_viewer(
 
         return
 
-    # ---------------------------------------------------------
-    # VERIFY SESSION STATE
-    # ---------------------------------------------------------
-
     if session.status not in [
         "CONNECTING",
         "ACTIVE",
@@ -1307,10 +1315,6 @@ async def remote_control_viewer(
         )
 
         return
-
-    # ---------------------------------------------------------
-    # ACCEPT AUTHENTICATED VIEWER
-    # ---------------------------------------------------------
 
     await websocket.accept()
 
@@ -1357,6 +1361,8 @@ async def remote_control_viewer(
             f"for session {session_id}: "
             f"{type(e).__name__}: {e}"
         )
+
+
 # =========================================================
 # AGENT CONTROL CHANNEL
 # =========================================================
@@ -1382,10 +1388,46 @@ async def remote_agent_control(
     if not session:
 
         await websocket.close(
-            code=1008
+            code=1008,
+            reason="Session not found",
         )
 
         return
+
+    # ---------------------------------------------------------
+    # AUTHENTICATE AGENT BEFORE ACCEPTING WEBSOCKET
+    # ---------------------------------------------------------
+
+    current_agent = authenticate_agent_websocket(
+        websocket,
+        db,
+    )
+
+    if current_agent is None:
+
+        await websocket.close(
+            code=1008,
+            reason="Agent authentication required",
+        )
+
+        return
+
+    # ---------------------------------------------------------
+    # VERIFY AGENT OWNS THE SESSION DEVICE
+    # ---------------------------------------------------------
+
+    if current_agent.device_id != session.device_id:
+
+        await websocket.close(
+            code=1008,
+            reason="Agent credential does not match session device",
+        )
+
+        return
+
+    # ---------------------------------------------------------
+    # VERIFY SESSION STATE
+    # ---------------------------------------------------------
 
     if session.status not in [
         "CONNECTING",
@@ -1399,10 +1441,15 @@ async def remote_agent_control(
         )
 
         await websocket.close(
-            code=1008
+            code=1008,
+            reason="Session is not active",
         )
 
         return
+
+    # ---------------------------------------------------------
+    # ACCEPT AUTHENTICATED AGENT CONNECTION
+    # ---------------------------------------------------------
 
     await remote_control_manager.connect_agent(
         session_id,

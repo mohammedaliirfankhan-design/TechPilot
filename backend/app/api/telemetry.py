@@ -4,7 +4,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.telemetry import Telemetry
 from app.models.alert import Alert
+from app.models.agent import Agent
 from app.services.alert_engine import evaluate_telemetry
+from app.security.agent_auth import get_current_agent
 
 
 router = APIRouter(
@@ -17,7 +19,16 @@ router = APIRouter(
 def receive_telemetry(
     telemetry_data: dict,
     db: Session = Depends(get_db),
+    current_agent: Agent = Depends(get_current_agent),
 ):
+    if current_agent.device_id != telemetry_data.get("device_id"):
+        from fastapi import HTTPException, status
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Agent credential does not match device.",
+        )
+
     telemetry = Telemetry(
         device_id=telemetry_data["device_id"],
         hostname=telemetry_data["hostname"],

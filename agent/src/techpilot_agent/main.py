@@ -5,6 +5,7 @@ import urllib.request
 import urllib.error
 
 from techpilot_agent.communication.client import TechPilotClient
+from techpilot_agent.config import AGENT_TOKEN
 from techpilot_agent.identity.device_id import get_device_id
 from techpilot_agent.telemetry.collector import collect_telemetry
 
@@ -40,6 +41,9 @@ def get_session_status(session_id: int):
         request = urllib.request.Request(
             url,
             method="GET",
+            headers={
+                "Authorization": f"Bearer {AGENT_TOKEN}",
+            },
         )
 
         with urllib.request.urlopen(

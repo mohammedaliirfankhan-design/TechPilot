@@ -21,6 +21,16 @@ class Agent(Base):
         index=True,
     )
 
+    agent_token_hash: Mapped[str | None] = mapped_column(
+    String(255),
+    nullable=True,
+)
+
+    agent_token_created_at: Mapped[datetime | None] = mapped_column(
+    DateTime(timezone=True),
+    nullable=True,
+)
+
     device_id: Mapped[str] = mapped_column(
         String(128),
         unique=True,
