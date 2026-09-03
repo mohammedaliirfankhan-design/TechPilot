@@ -13,6 +13,7 @@ import type {
 
 import {
   disconnectRemoteSession,
+  getRemoteWebSocketBaseUrl,
 } from "../api";
 
 
@@ -187,25 +188,17 @@ export default function RemoteSession({
 
 
   /*
-   * =========================================================
-   * BUILD WEBSOCKET URL
-   * =========================================================
-   */
+ * =========================================================
+ * BUILD WEBSOCKET URL
+ * =========================================================
+ */
 
-  const buildWebSocketUrl =
+const buildWebSocketUrl =
   useCallback(
     (path: string) => {
 
-      const hostname =
-        window.location.hostname;
-
-      const protocol =
-        window.location.protocol === "https:"
-          ? "wss:"
-          : "ws:";
-
       const baseUrl =
-        `${protocol}//${hostname}:8000` +
+        `${getRemoteWebSocketBaseUrl()}` +
         `/api/v1/remote/sessions/` +
         `${effectiveSessionId}` +
         path;

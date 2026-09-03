@@ -1,0 +1,486 @@
+#define MyAppName "TechAIPILOT Agent"
+#define MyAppVersion "1.0.0"
+#define MyAppPublisher "TechAIPILOT"
+#define MyAppExeName "TechAIPILOTAgent.exe"
+
+[Setup]
+AppId={{7E7B6C3D-3E3D-4B9D-9D4A-6E0A4F1D8C21}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+
+DefaultDirName={autopf}\TechAIPILOT\Agent
+
+DisableProgramGroupPage=yes
+DisableDirPage=yes
+
+PrivilegesRequired=admin
+
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+
+OutputDir=.\installer-output
+OutputBaseFilename=TechAIPILOTAgentSetup
+
+Compression=lzma2
+SolidCompression=yes
+
+WizardStyle=modern
+
+UninstallDisplayIcon={app}\{#MyAppExeName}
+
+ChangesEnvironment=yes
+SetupLogging=yes
+UninstallLogging=yes
+
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+
+[Files]
+Source: ".\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+
+
+[Dirs]
+Name: "{commonappdata}\TechAIPILOT\data"
+Name: "{commonappdata}\TechAIPILOT\logs"
+Name: "{commonappdata}\TechAIPILOT\config"
+
+
+[Registry]
+Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "TECHAIPILOT_BACKEND_URL"; ValueData: "{code:BackendUrl}"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "TECHAIPILOT_AGENT_TOKEN"; ValueData: "{code:AgentToken}"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "TECHAIPILOT_DATA_DIR"; ValueData: "{commonappdata}\TechAIPILOT\data"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "TECHAIPILOT_LOG_DIR"; ValueData: "{commonappdata}\TechAIPILOT\logs"; Flags: uninsdeletevalue
+
+
+[UninstallRun]
+Filename: "{sys}\schtasks.exe"; Parameters: "/End /TN ""TechAIPILOT Agent"""; Flags: runhidden waituntilterminated
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""TechAIPILOT Agent"" /F"; Flags: runhidden waituntilterminated
+
+
+[UninstallDelete]
+Type: files; Name: "{app}\TechAIPILOTAgentLauncher.ps1"
+
+
+[Code]
+
+var
+  ConfigPage: TInputQueryWizardPage;
+
+
+function BackendUrl(Param: String): String;
+begin
+  Result := Trim(ConfigPage.Values[0]);
+end;
+
+
+function AgentToken(Param: String): String;
+begin
+  Result := Trim(ConfigPage.Values[1]);
+end;
+
+
+function XmlEscape(const Value: String): String;
+begin
+  Result := Value;
+
+  StringChangeEx(
+    Result,
+    '&',
+    '&amp;',
+    True
+  );
+
+  StringChangeEx(
+    Result,
+    '<',
+    '&lt;',
+    True
+  );
+
+  StringChangeEx(
+    Result,
+    '>',
+    '&gt;',
+    True
+  );
+
+  StringChangeEx(
+    Result,
+    '"',
+    '&quot;',
+    True
+  );
+
+  StringChangeEx(
+    Result,
+    '''',
+    '&apos;',
+    True
+  );
+end;
+
+
+procedure InitializeWizard;
+begin
+  ConfigPage :=
+    CreateInputQueryPage(
+      wpSelectDir,
+      'TechAIPILOT Agent Configuration',
+      'Connect this agent to your TechAIPILOT server',
+      'Enter the backend URL and the agent enrollment credential.'
+    );
+
+  ConfigPage.Add(
+    'Backend URL:',
+    False
+  );
+
+  ConfigPage.Add(
+    'Agent token:',
+    True
+  );
+
+  ConfigPage.Values[0] :=
+    'http://192.168.0.69:8000';
+end;
+
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+
+  if CurPageID = ConfigPage.ID then
+  begin
+
+    if Trim(ConfigPage.Values[0]) = '' then
+    begin
+      MsgBox(
+        'Backend URL is required.',
+        mbError,
+        MB_OK
+      );
+
+      Result := False;
+      Exit;
+    end;
+
+
+    if Pos(
+      'http://',
+      LowerCase(Trim(ConfigPage.Values[0]))
+    ) <> 1 then
+    begin
+
+      if Pos(
+        'https://',
+        LowerCase(Trim(ConfigPage.Values[0]))
+      ) <> 1 then
+      begin
+
+        MsgBox(
+          'Backend URL must start with http:// or https://.',
+          mbError,
+          MB_OK
+        );
+
+        Result := False;
+        Exit;
+      end;
+
+    end;
+
+
+    if Trim(ConfigPage.Values[1]) = '' then
+    begin
+      MsgBox(
+        'Agent token is required.',
+        mbError,
+        MB_OK
+      );
+
+      Result := False;
+      Exit;
+    end;
+
+
+    if Pos(
+      'tpa_',
+      LowerCase(Trim(ConfigPage.Values[1]))
+    ) <> 1 then
+    begin
+      MsgBox(
+        'The agent token format is invalid.',
+        mbError,
+        MB_OK
+      );
+
+      Result := False;
+      Exit;
+    end;
+
+  end;
+end;
+
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  LauncherPath: String;
+  TaskXmlPath: String;
+
+  LauncherContent: String;
+  TaskXmlContent: String;
+
+  UserName: String;
+
+  ResultCode: Integer;
+begin
+
+  if CurStep = ssPostInstall then
+  begin
+
+    //
+    // Create launcher.
+    //
+    // The launcher reads the configuration from
+    // the current user's environment and passes it
+    // to the interactive agent process.
+    //
+
+    LauncherPath :=
+      ExpandConstant(
+        '{app}\TechAIPILOTAgentLauncher.ps1'
+      );
+
+
+    LauncherContent :=
+      '$ErrorActionPreference = "Stop"' + #13#10 +
+
+      '$envKey = "HKCU:\Environment"' + #13#10 +
+
+      '$backend = (Get-ItemProperty -Path $envKey -Name "TECHAIPILOT_BACKEND_URL").TECHAIPILOT_BACKEND_URL' + #13#10 +
+
+      '$token = (Get-ItemProperty -Path $envKey -Name "TECHAIPILOT_AGENT_TOKEN").TECHAIPILOT_AGENT_TOKEN' + #13#10 +
+
+      '$dataDir = (Get-ItemProperty -Path $envKey -Name "TECHAIPILOT_DATA_DIR").TECHAIPILOT_DATA_DIR' + #13#10 +
+
+      '$logDir = (Get-ItemProperty -Path $envKey -Name "TECHAIPILOT_LOG_DIR").TECHAIPILOT_LOG_DIR' + #13#10 +
+
+      '$env:TECHAIPILOT_BACKEND_URL = $backend' + #13#10 +
+
+      '$env:TECHAIPILOT_AGENT_TOKEN = $token' + #13#10 +
+
+      '$env:TECHAIPILOT_DATA_DIR = $dataDir' + #13#10 +
+
+      '$env:TECHAIPILOT_LOG_DIR = $logDir' + #13#10 +
+
+      'Start-Process -FilePath (Join-Path $PSScriptRoot "TechAIPILOTAgent.exe") -WorkingDirectory $PSScriptRoot';
+
+
+    if not SaveStringToFile(
+      LauncherPath,
+      LauncherContent,
+      False
+    ) then
+    begin
+
+      MsgBox(
+        'Could not create the TechAIPILOT agent launcher.',
+        mbError,
+        MB_OK
+      );
+
+      Exit;
+
+    end;
+
+
+    //
+    // Determine the Windows user that installed
+    // the interactive agent.
+    //
+
+    UserName :=
+      XmlEscape(
+        ExpandConstant('{username}')
+      );
+
+
+    //
+    // Create the Task Scheduler XML.
+    //
+
+    TaskXmlPath :=
+      ExpandConstant(
+        '{tmp}\TechAIPILOTAgentTask.xml'
+      );
+
+
+    TaskXmlContent :=
+      '<?xml version="1.0" encoding="UTF-16"?>' + #13#10 +
+
+      '<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">' + #13#10 +
+
+      '  <RegistrationInfo>' + #13#10 +
+      '    <Author>TechAIPILOT</Author>' + #13#10 +
+      '    <Description>Starts the TechAIPILOT interactive agent when the user logs on.</Description>' + #13#10 +
+      '  </RegistrationInfo>' + #13#10 +
+
+      '  <Triggers>' + #13#10 +
+
+      '    <LogonTrigger>' + #13#10 +
+      '      <Enabled>true</Enabled>' + #13#10 +
+      '      <UserId>' + UserName + '</UserId>' + #13#10 +
+      '      <Delay>PT10S</Delay>' + #13#10 +
+      '    </LogonTrigger>' + #13#10 +
+
+      '  </Triggers>' + #13#10 +
+
+      '  <Principals>' + #13#10 +
+
+      '    <Principal id="Author">' + #13#10 +
+      '      <UserId>' + UserName + '</UserId>' + #13#10 +
+      '      <LogonType>InteractiveToken</LogonType>' + #13#10 +
+      '      <RunLevel>LeastPrivilege</RunLevel>' + #13#10 +
+      '    </Principal>' + #13#10 +
+
+      '  </Principals>' + #13#10 +
+
+      '  <Settings>' + #13#10 +
+
+      '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>' + #13#10 +
+
+      '    <AllowHardTerminate>true</AllowHardTerminate>' + #13#10 +
+
+      '    <StartWhenAvailable>true</StartWhenAvailable>' + #13#10 +
+
+      '    <AllowStartOnDemand>true</AllowStartOnDemand>' + #13#10 +
+
+      '    <Enabled>true</Enabled>' + #13#10 +
+
+      '    <Hidden>true</Hidden>' + #13#10 +
+
+      '    <RestartOnFailure>' + #13#10 +
+      '      <Interval>PT1M</Interval>' + #13#10 +
+      '      <Count>3</Count>' + #13#10 +
+      '    </RestartOnFailure>' + #13#10 +
+
+      '  </Settings>' + #13#10 +
+
+      '  <Actions Context="Author">' + #13#10 +
+
+      '    <Exec>' + #13#10 +
+
+      '      <Command>powershell.exe</Command>' + #13#10 +
+
+      '      <Arguments>-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
+
+      XmlEscape(
+        ExpandConstant(
+          '{app}\TechAIPILOTAgentLauncher.ps1'
+        )
+      ) +
+
+      '"</Arguments>' + #13#10 +
+
+      '      <WorkingDirectory>' +
+
+      XmlEscape(
+        ExpandConstant(
+          '{app}'
+        )
+      ) +
+
+      '</WorkingDirectory>' + #13#10 +
+
+      '    </Exec>' + #13#10 +
+
+      '  </Actions>' + #13#10 +
+
+      '</Task>';
+
+
+    if not SaveStringToFile(
+      TaskXmlPath,
+      TaskXmlContent,
+      False
+    ) then
+    begin
+
+      MsgBox(
+        'Could not create the TechAIPILOT scheduled-task definition.',
+        mbError,
+        MB_OK
+      );
+
+      Exit;
+
+    end;
+
+
+    //
+    // Register the scheduled task.
+    //
+
+    Exec(
+      ExpandConstant(
+        '{sys}\schtasks.exe'
+      ),
+
+      '/Create /TN "TechAIPILOT Agent" /XML "' +
+      TaskXmlPath +
+      '" /F',
+
+      '',
+
+      SW_HIDE,
+
+      ewWaitUntilTerminated,
+
+      ResultCode
+    );
+
+
+    if ResultCode <> 0 then
+    begin
+
+      MsgBox(
+        'The TechAIPILOT Agent was installed, but Windows Task Scheduler could not create the automatic startup task.' +
+        #13#10#13#10 +
+        'You can retry the installation after checking Task Scheduler permissions.',
+
+        mbError,
+
+        MB_OK
+      );
+
+      Exit;
+
+    end;
+
+
+    //
+    // Start the newly created task immediately.
+    //
+
+    Exec(
+      ExpandConstant(
+        '{sys}\schtasks.exe'
+      ),
+
+      '/Run /TN "TechAIPILOT Agent"',
+
+      '',
+
+      SW_HIDE,
+
+      ewWaitUntilTerminated,
+
+      ResultCode
+    );
+
+  end;
+
+end;

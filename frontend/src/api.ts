@@ -1,4 +1,12 @@
-const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL ||
+  "http://localhost:8000"
+).replace(/\/+$/, "");
+
+const WS_BASE_URL =
+  API_BASE_URL.startsWith("https://")
+    ? API_BASE_URL.replace(/^https:\/\//, "wss://")
+    : API_BASE_URL.replace(/^http:\/\//, "ws://");
 
 /* =========================================================
    TYPES
@@ -64,12 +72,10 @@ export async function registerUser(
   );
 
   if (!response.ok) {
-    let message =
-      "Unable to create account.";
+    let message = "Unable to create account.";
 
     try {
-      const error =
-        await response.json();
+      const error = await response.json();
 
       if (typeof error.detail === "string") {
         message = error.detail;
@@ -104,12 +110,10 @@ export async function loginUser(
   );
 
   if (!response.ok) {
-    let message =
-      "Unable to sign in.";
+    let message = "Unable to sign in.";
 
     try {
-      const error =
-        await response.json();
+      const error = await response.json();
 
       if (typeof error.detail === "string") {
         message = error.detail;
@@ -139,12 +143,10 @@ export async function getCurrentUser(
   );
 
   if (!response.ok) {
-    let message =
-      "Authentication session is invalid.";
+    let message = "Authentication session is invalid.";
 
     try {
-      const error =
-        await response.json();
+      const error = await response.json();
 
       if (typeof error.detail === "string") {
         message = error.detail;
@@ -182,8 +184,7 @@ export async function getAgents(
       `Failed to fetch agents: ${response.status}`;
 
     try {
-      const error =
-        await response.json();
+      const error = await response.json();
 
       if (typeof error.detail === "string") {
         message = error.detail;
@@ -220,8 +221,7 @@ export async function createRemoteSession(
   );
 
   if (!response.ok) {
-    const errorText =
-      await response.text();
+    const errorText = await response.text();
 
     throw new Error(
       `Failed to create remote session: ${response.status} ${errorText}`,
@@ -246,8 +246,7 @@ export async function getPendingRemoteSession(
   );
 
   if (!response.ok) {
-    const errorText =
-      await response.text();
+    const errorText = await response.text();
 
     throw new Error(
       `Failed to check existing remote session: ${response.status} ${errorText}`,
@@ -270,8 +269,7 @@ export async function getRemoteSession(
   );
 
   if (!response.ok) {
-    const errorText =
-      await response.text();
+    const errorText = await response.text();
 
     throw new Error(
       `Failed to fetch remote session: ${response.status} ${errorText}`,
@@ -301,8 +299,7 @@ export async function disconnectRemoteSession(
   );
 
   if (!response.ok) {
-    const errorText =
-      await response.text();
+    const errorText = await response.text();
 
     throw new Error(
       errorText ||
@@ -313,13 +310,26 @@ export async function disconnectRemoteSession(
 
 
 /* =========================================================
+   REMOTE WEBSOCKET BASE URL
+   ========================================================= */
+
+export function getRemoteWebSocketBaseUrl(): string {
+  return WS_BASE_URL;
+}
+
+
+/* =========================================================
    REMOTE SCREEN WEBSOCKET
    ========================================================= */
 
 export function getRemoteStreamUrl(
   sessionId: number,
+  token: string,
 ): string {
-  return `ws://localhost:8000/api/v1/remote/sessions/${sessionId}/stream`;
+  return (
+    `${WS_BASE_URL}/api/v1/remote/sessions/${sessionId}/stream` +
+    `?token=${encodeURIComponent(token)}`
+  );
 }
 
 
@@ -329,6 +339,10 @@ export function getRemoteStreamUrl(
 
 export function getRemoteControlUrl(
   sessionId: number,
+  token: string,
 ): string {
-  return `ws://localhost:8000/api/v1/remote/sessions/${sessionId}/control`;
+  return (
+    `${WS_BASE_URL}/api/v1/remote/sessions/${sessionId}/control` +
+    `?token=${encodeURIComponent(token)}`
+  );
 }

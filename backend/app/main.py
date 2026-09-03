@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.agents import router as agents_router
 from app.api.telemetry import router as telemetry_router
 from app.database import Base, engine
+from app.config import CORS_ORIGINS
 from app.models.agent import Agent
 from app.models.telemetry import Telemetry
 from app.models.alert import Alert
@@ -22,10 +23,7 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

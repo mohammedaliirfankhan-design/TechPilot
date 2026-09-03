@@ -5,8 +5,9 @@ import urllib.request
 import urllib.error
 
 from techpilot_agent.communication.client import TechPilotClient
-from techpilot_agent.config import AGENT_TOKEN
+from techpilot_agent.config import BACKEND_URL, AGENT_TOKEN
 from techpilot_agent.identity.device_id import get_device_id
+from techpilot_agent.logging_config import configure_logging
 from techpilot_agent.telemetry.collector import collect_telemetry
 
 from remote.stream import RemoteScreenStreamer
@@ -16,8 +17,6 @@ from remote.control import RemoteControlClient
 # =========================================================
 # CONFIGURATION
 # =========================================================
-
-BACKEND_URL = "http://192.168.0.69:8000"
 
 SESSION_CHECK_INTERVAL = 2
 SESSION_STATUS_INTERVAL = 1
@@ -466,6 +465,12 @@ def start_remote_session(
 def main(
     debug: bool = False,
 ):
+
+    logger = configure_logging()
+
+    logger.info(
+        "TechAIPILOT agent starting."
+    )
 
     print(
         "================================================="
@@ -1026,6 +1031,4 @@ def main(
 
 if __name__ == "__main__":
 
-    main(
-        debug=True
-    )
+    main()

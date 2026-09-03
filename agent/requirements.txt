@@ -3,3 +3,4 @@ psutil
 mss
 Pillow
 websocket-client
+pyautogui
