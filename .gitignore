@@ -28,6 +28,7 @@ pnpm-debug.log*
 # Build output
 dist/
 build/
+installer-output/
 
 # IDE
 .vscode/

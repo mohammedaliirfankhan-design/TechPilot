@@ -3,15 +3,18 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.api.auth import get_current_user
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.user import User
 from app.schemas.agent import AgentRegisterRequest, AgentResponse
-from app.api.auth import get_current_user
 from app.security.agent_auth import (
     generate_agent_token,
-    hash_agent_token,
     get_current_agent,
+    hash_agent_token,
+)
+from app.services.organization import (
+    get_user_default_organization,
 )
 
 
@@ -63,11 +66,26 @@ def get_agents(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    organization = get_user_default_organization(
+        db,
+        current_user,
+    )
+
+    if organization is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Your account must belong to exactly one active "
+                "organization to access devices."
+            ),
+        )
+
     agents = (
         db.query(Agent)
         .filter(
-            Agent.user_id == current_user.id
+            Agent.organization_id == organization.id
         )
+        .order_by(Agent.id)
         .all()
     )
 
@@ -83,6 +101,20 @@ def claim_agent(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    organization = get_user_default_organization(
+        db,
+        current_user,
+    )
+
+    if organization is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Your account must belong to exactly one active "
+                "organization to claim devices."
+            ),
+        )
+
     agent = (
         db.query(Agent)
         .filter(
@@ -97,18 +129,43 @@ def claim_agent(
             detail="Device not found.",
         )
 
-    if agent.user_id is not None:
-        if agent.user_id == current_user.id:
+    if agent.organization_id is not None:
+        if agent.organization_id == organization.id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="This device is already assigned to your account.",
+                detail=(
+                    "This device is already assigned to "
+                    "your organization."
+                ),
             )
 
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="This device is already assigned to another account.",
+            detail=(
+                "This device is already assigned to "
+                "another organization."
+            ),
         )
 
+    if agent.user_id is not None:
+        if agent.user_id == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This device is already assigned to "
+                    "your account."
+                ),
+            )
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This device is already assigned to "
+                "another account."
+            ),
+        )
+
+    agent.organization_id = organization.id
     agent.user_id = current_user.id
 
     db.commit()
@@ -123,6 +180,20 @@ def enroll_agent(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    organization = get_user_default_organization(
+        db,
+        current_user,
+    )
+
+    if organization is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Your account must belong to exactly one active "
+                "organization to enroll devices."
+            ),
+        )
+
     agent = (
         db.query(Agent)
         .filter(
@@ -137,10 +208,23 @@ def enroll_agent(
             detail="Device not found.",
         )
 
+    if agent.organization_id is not None:
+        if agent.organization_id != organization.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This device is already assigned to "
+                    "another organization."
+                ),
+            )
+
     if agent.user_id is not None and agent.user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="This device is already assigned to another account.",
+            detail=(
+                "This device is already assigned to "
+                "another account."
+            ),
         )
 
     if agent.agent_token_hash is not None:
@@ -149,6 +233,7 @@ def enroll_agent(
             detail="This device is already enrolled.",
         )
 
+    agent.organization_id = organization.id
     agent.user_id = current_user.id
 
     agent_token = generate_agent_token()
@@ -181,10 +266,25 @@ def rotate_agent_token(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    organization = get_user_default_organization(
+        db,
+        current_user,
+    )
+
+    if organization is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Your account must belong to exactly one active "
+                "organization to manage device tokens."
+            ),
+        )
+
     agent = (
         db.query(Agent)
         .filter(
-            Agent.device_id == device_id
+            Agent.device_id == device_id,
+            Agent.organization_id == organization.id,
         )
         .first()
     )
@@ -193,12 +293,6 @@ def rotate_agent_token(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Device not found.",
-        )
-
-    if agent.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to rotate this device token.",
         )
 
     agent_token = generate_agent_token()

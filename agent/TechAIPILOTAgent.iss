@@ -276,7 +276,7 @@ begin
 
       '$env:TECHAIPILOT_LOG_DIR = $logDir' + #13#10 +
 
-      'Start-Process -FilePath (Join-Path $PSScriptRoot "TechAIPILOTAgent.exe") -WorkingDirectory $PSScriptRoot';
+      'Start-Process -FilePath (Join-Path $PSScriptRoot "TechAIPILOTAgent.exe") -WorkingDirectory $PSScriptRoot -Wait';
 
 
     if not SaveStringToFile(
@@ -349,6 +349,9 @@ begin
       '  </Principals>' + #13#10 +
 
       '  <Settings>' + #13#10 +
+
+      '  <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>' + #13#10 +
+      '  <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>' + #13#10 +
 
       '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>' + #13#10 +
 
@@ -446,9 +449,9 @@ begin
     if ResultCode <> 0 then
     begin
 
-      MsgBox(
+            MsgBox(
         'The TechAIPILOT Agent was installed, but Windows Task Scheduler could not create the automatic startup task.' +
-        #13#10#13#10 +
+        Chr(13) + Chr(10) + Chr(13) + Chr(10) +
         'You can retry the installation after checking Task Scheduler permissions.',
 
         mbError,

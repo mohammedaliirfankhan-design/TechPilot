@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
@@ -21,15 +21,21 @@ class Agent(Base):
         index=True,
     )
 
+    organization_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organizations.id"),
+        nullable=True,
+        index=True,
+    )
+
     agent_token_hash: Mapped[str | None] = mapped_column(
-    String(255),
-    nullable=True,
-)
+        String(255),
+        nullable=True,
+    )
 
     agent_token_created_at: Mapped[datetime | None] = mapped_column(
-    DateTime(timezone=True),
-    nullable=True,
-)
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
     device_id: Mapped[str] = mapped_column(
         String(128),
@@ -68,4 +74,8 @@ class Agent(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
+    )
+
+    organization: Mapped["Organization | None"] = relationship(
+        back_populates="agents",
     )

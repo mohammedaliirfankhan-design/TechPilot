@@ -3,6 +3,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.organization import Organization
+from app.models.organization_user import OrganizationUser
 from app.models.user import User
 from app.schemas.auth import (
     LoginRequest,
@@ -24,7 +26,10 @@ router = APIRouter(
 )
 
 
-security = HTTPBearer()
+security = HTTPBearer(
+    scheme_name="UserBearer",
+    description="User JWT access token",
+)
 
 
 @router.post(
@@ -56,6 +61,24 @@ def register(
     )
 
     db.add(user)
+    db.flush()
+
+    organization = Organization(
+        name=f"TechAIPILOT - {user.email}",
+        status="ACTIVE",
+    )
+
+    db.add(organization)
+    db.flush()
+
+    membership = OrganizationUser(
+        organization_id=organization.id,
+        user_id=user.id,
+        role="OWNER",
+    )
+
+    db.add(membership)
+
     db.commit()
     db.refresh(user)
 
@@ -117,7 +140,6 @@ def get_current_user(
     ),
     db: Session = Depends(get_db),
 ) -> User:
-
     user_id = decode_access_token(
         credentials.credentials,
     )

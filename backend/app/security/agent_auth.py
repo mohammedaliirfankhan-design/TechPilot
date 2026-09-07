@@ -3,10 +3,13 @@ import secrets
 
 from fastapi import (
     Depends,
-    Header,
     HTTPException,
     WebSocket,
     status,
+)
+from fastapi.security import (
+    HTTPAuthorizationCredentials,
+    HTTPBearer,
 )
 from sqlalchemy.orm import Session
 
@@ -15,6 +18,11 @@ from app.models.agent import Agent
 
 
 AGENT_TOKEN_PREFIX = "tpa_"
+
+agent_security = HTTPBearer(
+    scheme_name="AgentBearer",
+    description="Agent token (tpa_...)",
+)
 
 
 def generate_agent_token() -> str:
@@ -46,33 +54,16 @@ def verify_agent_token(
 
 
 def get_current_agent(
-    authorization: str | None = Header(default=None),
+    credentials: HTTPAuthorizationCredentials = Depends(
+        agent_security
+    ),
     db: Session = Depends(get_db),
 ) -> Agent:
-
-    if not authorization:
-
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Agent authorization required.",
-        )
-
-    scheme, _, token = authorization.partition(" ")
-
-    if (
-        scheme.lower() != "bearer"
-        or not token
-    ):
-
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid agent authorization header.",
-        )
+    token = credentials.credentials
 
     if not token.startswith(
         AGENT_TOKEN_PREFIX
     ):
-
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid agent credential.",
@@ -92,7 +83,6 @@ def get_current_agent(
     )
 
     if not agent:
-
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid agent credential.",
