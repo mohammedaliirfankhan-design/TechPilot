@@ -9,6 +9,7 @@ import DeviceDetails from "./pages/DeviceDetails";
 import RemoteSession from "./pages/RemoteSession";
 import Login from "./pages/login";
 import CreateAccount from "./pages/CreateAccount";
+import Landing from "./pages/Landing";
 
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
@@ -76,6 +77,9 @@ function App() {
 
   const [authScreen, setAuthScreen] =
     useState<AuthScreen>("login");
+
+  const [showLanding, setShowLanding] =
+  useState(true);
 
   const [page, setPage] =
     useState<Page>("home");
@@ -182,6 +186,7 @@ function App() {
     setQuery("");
     setPage("home");
     setAuthScreen("login");
+    setShowLanding(true);
   };
 
   const handleNavigate = (
@@ -213,32 +218,45 @@ function App() {
   }
 
   if (!token || !currentUser) {
-    if (
-      authScreen === "register"
-    ) {
-      return (
-        <CreateAccount
-          onRegisterSuccess={
-            handleAuthenticated
-          }
-          onLogin={() =>
-            setAuthScreen("login")
-          }
-        />
-      );
-    }
-
+  if (showLanding) {
     return (
-      <Login
-        onLoginSuccess={
-          handleAuthenticated
-        }
-        onCreateAccount={() =>
-          setAuthScreen("register")
-        }
+      <Landing
+        onGetStarted={() => {
+          setShowLanding(false);
+          setAuthScreen("register");
+        }}
+        onLogin={() => {
+          setShowLanding(false);
+          setAuthScreen("login");
+        }}
       />
     );
-  } 
+  }
+
+  if (authScreen === "register") {
+    return (
+      <CreateAccount
+        onRegisterSuccess={
+          handleAuthenticated
+        }
+        onLogin={() => {
+          setAuthScreen("login");
+        }}
+      />
+    );
+  }
+
+  return (
+    <Login
+      onLoginSuccess={
+        handleAuthenticated
+      }
+      onCreateAccount={() => {
+        setAuthScreen("register");
+      }}
+    />
+  );
+}
 
     if (
     remoteSessionId &&
