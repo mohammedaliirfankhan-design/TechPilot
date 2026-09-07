@@ -135,11 +135,11 @@ function Topbar({
                 : ""
             }`}
           >
-            <span
+              <span
               className="search-icon"
               aria-hidden="true"
             >
-              âŒ•
+              ⌕
             </span>
 
             <input

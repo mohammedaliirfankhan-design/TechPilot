@@ -6,8 +6,10 @@ import {
 
 import ScrollReveal from "../components/ScrollReveal";
 import {
+  createDeviceEnrollment,
   getAgents,
   type Agent,
+  type DeviceEnrollmentResponse,
 } from "../api";
 
 type DevicesProps = {
@@ -29,6 +31,21 @@ function Devices({
 
   const [error, setError] =
     useState<string | null>(null);
+
+  const [showEnrollment, setShowEnrollment] =
+    useState(false);
+
+  const [enrollment, setEnrollment] =
+    useState<DeviceEnrollmentResponse | null>(null);
+
+  const [enrollmentLoading, setEnrollmentLoading] =
+    useState(false);
+
+  const [enrollmentError, setEnrollmentError] =
+    useState<string | null>(null);
+
+  const [copied, setCopied] =
+    useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +104,65 @@ function Devices({
     );
   }, [agents, searchQuery]);
 
+  async function handleCreateEnrollment() {
+    try {
+      setEnrollmentLoading(true);
+      setEnrollmentError(null);
+      setCopied(false);
+
+      const data =
+        await createDeviceEnrollment(token);
+
+      setEnrollment(data);
+    } catch (err) {
+      setEnrollmentError(
+        err instanceof Error
+          ? err.message
+          : "Failed to create enrollment code.",
+      );
+    } finally {
+      setEnrollmentLoading(false);
+    }
+  }
+
+  function handleOpenEnrollment() {
+    setShowEnrollment(true);
+    setEnrollment(null);
+    setEnrollmentError(null);
+    setCopied(false);
+
+    void handleCreateEnrollment();
+  }
+
+  function handleCloseEnrollment() {
+    setShowEnrollment(false);
+    setEnrollment(null);
+    setEnrollmentError(null);
+    setCopied(false);
+  }
+
+  async function handleCopyCode() {
+    if (!enrollment) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        enrollment.enrollment_code,
+      );
+
+      setCopied(true);
+
+      window.setTimeout(() => {
+        setCopied(false);
+      }, 2000);
+    } catch {
+      setEnrollmentError(
+        "Unable to copy the enrollment code.",
+      );
+    }
+  }
+
   return (
     <div className="devices-clean">
       <ScrollReveal delay={0}>
@@ -107,14 +183,25 @@ function Devices({
             </p>
           </div>
 
-          <div className="devices-count">
-            <span>REGISTERED</span>
+          <div className="devices-header-actions">
+            <button
+              type="button"
+              className="devices-add-button"
+              onClick={handleOpenEnrollment}
+            >
+              <span>+</span>
+              ADD DEVICE
+            </button>
 
-            <strong>
-              {agents.length
-                .toString()
-                .padStart(2, "0")}
-            </strong>
+            <div className="devices-count">
+              <span>REGISTERED</span>
+
+              <strong>
+                {agents.length
+                  .toString()
+                  .padStart(2, "0")}
+              </strong>
+            </div>
           </div>
         </section>
       </ScrollReveal>
@@ -233,6 +320,134 @@ function Devices({
             ))}
         </section>
       </ScrollReveal>
+
+      {showEnrollment && (
+        <div
+          className="device-enrollment-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              handleCloseEnrollment();
+            }
+          }}
+        >
+          <section
+            className="device-enrollment-modal glass-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="device-enrollment-title"
+          >
+            <div className="device-enrollment-header">
+              <div>
+                <span className="eyebrow">
+                  SECURE ONBOARDING
+                </span>
+
+                <h3 id="device-enrollment-title">
+                  Add a Device
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                className="device-enrollment-close"
+                onClick={handleCloseEnrollment}
+                aria-label="Close add device dialog"
+              >
+                ×
+              </button>
+            </div>
+
+            {enrollmentLoading && (
+              <div className="device-enrollment-state">
+                <span className="devices-loading-dot" />
+
+                <strong>
+                  Generating enrollment code...
+                </strong>
+
+                <p>
+                  Creating a secure one-time
+                  onboarding credential.
+                </p>
+              </div>
+            )}
+
+            {!enrollmentLoading &&
+              enrollmentError && (
+                <div className="device-enrollment-state devices-error">
+                  <strong>
+                    Unable to create enrollment code
+                  </strong>
+
+                  <p>
+                    {enrollmentError}
+                  </p>
+
+                  <button
+                    type="button"
+                    className="devices-add-button"
+                    onClick={() =>
+                      void handleCreateEnrollment()
+                    }
+                  >
+                    TRY AGAIN
+                  </button>
+                </div>
+              )}
+
+            {!enrollmentLoading &&
+              !enrollmentError &&
+              enrollment && (
+                <div className="device-enrollment-content">
+                  <p>
+                    Enter this code during the
+                    device installation process.
+                    It can only be used once.
+                  </p>
+
+                  <div className="device-enrollment-code">
+                    {enrollment.enrollment_code}
+                  </div>
+
+                  <div className="device-enrollment-expiry">
+                    <span>EXPIRES</span>
+
+                    <strong>
+                      15 MINUTES
+                    </strong>
+                  </div>
+
+                  <div className="device-enrollment-actions">
+                    <button
+                      type="button"
+                      className="devices-copy-button"
+                      onClick={() =>
+                        void handleCopyCode()
+                      }
+                    >
+                      {copied
+                        ? "COPIED"
+                        : "COPY CODE"}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="device-enrollment-done"
+                      onClick={handleCloseEnrollment}
+                    >
+                      DONE
+                    </button>
+                  </div>
+
+                  <small>
+                    Never share this code publicly.
+                  </small>
+                </div>
+              )}
+          </section>
+        </div>
+      )}
     </div>
   );
 }

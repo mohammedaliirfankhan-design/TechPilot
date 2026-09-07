@@ -16711,3 +16711,422 @@ body {
     gap: 14px;
   }
 }
+
+/* =========================================================
+   DEVICE ENROLLMENT
+   ========================================================= */
+
+.devices-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.devices-add-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  min-height: 40px;
+  padding: 0 15px;
+
+  border: 1px solid rgba(32, 216, 255, 0.35);
+  border-radius: 8px;
+
+  background: rgba(32, 216, 255, 0.07);
+
+  color: var(--cyan);
+
+  font-family: "Inter", sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+
+  letter-spacing: 0.08em;
+
+  cursor: pointer;
+
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.devices-add-button span {
+  font-size: 17px;
+  line-height: 1;
+}
+
+.devices-add-button:hover {
+  background: rgba(32, 216, 255, 0.12);
+  border-color: rgba(32, 216, 255, 0.6);
+
+  box-shadow:
+    0 0 20px rgba(32, 216, 255, 0.1),
+    inset 0 0 12px rgba(32, 216, 255, 0.04);
+
+  transform: translateY(-1px);
+}
+
+.devices-add-button:active {
+  transform: translateY(0);
+}
+
+/* Enrollment overlay */
+
+.device-enrollment-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 24px;
+
+  background: rgba(2, 6, 12, 0.72);
+
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Enrollment modal */
+
+.device-enrollment-modal {
+  width: min(100%, 500px);
+
+  padding: 28px;
+
+  border: 1px solid rgba(32, 216, 255, 0.2);
+  border-radius: 14px;
+
+  background:
+    linear-gradient(
+      145deg,
+      rgba(12, 23, 38, 0.96),
+      rgba(5, 12, 22, 0.98)
+    );
+
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.5),
+    0 0 40px rgba(32, 216, 255, 0.06);
+}
+
+.device-enrollment-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+
+  gap: 20px;
+
+  margin-bottom: 24px;
+}
+
+.device-enrollment-header h3 {
+  margin: 6px 0 0;
+
+  color: var(--text);
+
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.device-enrollment-close {
+  width: 32px;
+  height: 32px;
+
+  display: grid;
+  place-items: center;
+
+  flex-shrink: 0;
+
+  border: 1px solid var(--border);
+  border-radius: 7px;
+
+  background: rgba(255, 255, 255, 0.025);
+
+  color: var(--text-muted);
+
+  font-size: 21px;
+  line-height: 1;
+
+  cursor: pointer;
+
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.device-enrollment-close:hover {
+  color: var(--text);
+  border-color: var(--border-bright);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Enrollment loading / error */
+
+.device-enrollment-state {
+  min-height: 190px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  gap: 10px;
+
+  text-align: center;
+}
+
+.device-enrollment-state strong {
+  color: var(--text);
+
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.device-enrollment-state p {
+  max-width: 330px;
+
+  margin: 0;
+
+  color: var(--text-muted);
+
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.device-enrollment-state .devices-add-button {
+  margin-top: 8px;
+}
+
+/* Enrollment content */
+
+.device-enrollment-content {
+  text-align: center;
+}
+
+.device-enrollment-content > p {
+  max-width: 390px;
+
+  margin: 0 auto 22px;
+
+  color: var(--text-muted);
+
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.device-enrollment-code {
+  padding: 20px 16px;
+
+  border: 1px solid rgba(32, 216, 255, 0.25);
+  border-radius: 10px;
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(32, 216, 255, 0.07),
+      rgba(138, 92, 255, 0.07)
+    );
+
+  color: var(--cyan);
+
+  font-family: "JetBrains Mono", monospace;
+  font-size: 27px;
+  font-weight: 700;
+
+  letter-spacing: 0.1em;
+
+  text-shadow:
+    0 0 18px rgba(32, 216, 255, 0.25);
+
+  box-shadow:
+    inset 0 0 25px rgba(32, 216, 255, 0.025),
+    0 0 25px rgba(32, 216, 255, 0.04);
+}
+
+.device-enrollment-expiry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 8px;
+
+  margin-top: 15px;
+}
+
+.device-enrollment-expiry span {
+  color: var(--text-muted);
+
+  font-size: 9px;
+  font-weight: 700;
+
+  letter-spacing: 0.1em;
+}
+
+.device-enrollment-expiry strong {
+  color: var(--text-soft);
+
+  font-size: 10px;
+  font-weight: 700;
+
+  letter-spacing: 0.06em;
+}
+
+.device-enrollment-actions {
+  display: flex;
+  justify-content: center;
+
+  gap: 10px;
+
+  margin-top: 24px;
+}
+
+.devices-copy-button,
+.device-enrollment-done {
+  min-height: 40px;
+
+  padding: 0 18px;
+
+  border-radius: 8px;
+
+  font-family: "Inter", sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+
+  letter-spacing: 0.08em;
+
+  cursor: pointer;
+
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.devices-copy-button {
+  border: 1px solid rgba(32, 216, 255, 0.35);
+
+  background: rgba(32, 216, 255, 0.07);
+
+  color: var(--cyan);
+}
+
+.devices-copy-button:hover {
+  border-color: rgba(32, 216, 255, 0.6);
+  background: rgba(32, 216, 255, 0.12);
+
+  box-shadow:
+    0 0 18px rgba(32, 216, 255, 0.08);
+}
+
+.device-enrollment-done {
+  border: 1px solid var(--border);
+
+  background: rgba(255, 255, 255, 0.025);
+
+  color: var(--text-muted);
+}
+
+.device-enrollment-done:hover {
+  border-color: var(--border-bright);
+
+  background: rgba(255, 255, 255, 0.05);
+
+  color: var(--text);
+}
+
+.device-enrollment-content > small {
+  display: block;
+
+  margin-top: 18px;
+
+  color: var(--text-muted);
+
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+/* Mobile */
+
+@media (max-width: 720px) {
+  .devices-clean-header {
+    align-items: flex-start;
+  }
+
+  .devices-header-actions {
+    width: 100%;
+
+    justify-content: space-between;
+  }
+
+  .device-enrollment-modal {
+    padding: 22px;
+  }
+
+  .device-enrollment-code {
+    font-size: 22px;
+  }
+}
+
+/* =========================================================
+   HOME DEVICE INVENTORY ACTION
+   ========================================================= */
+
+.home-inventory-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+
+  min-height: 42px;
+  padding: 0 18px;
+
+  border: 1px solid rgba(32, 216, 255, 0.3);
+  border-radius: 8px;
+
+  background: rgba(32, 216, 255, 0.05);
+
+  color: var(--cyan);
+
+  font-family: "Inter", sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+
+  letter-spacing: 0.08em;
+
+  cursor: pointer;
+
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.home-inventory-button span {
+  color: var(--cyan);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.home-inventory-button:hover {
+  border-color: rgba(32, 216, 255, 0.55);
+
+  background: rgba(32, 216, 255, 0.09);
+
+  box-shadow:
+    0 0 18px rgba(32, 216, 255, 0.08),
+    inset 0 0 12px rgba(32, 216, 255, 0.03);
+
+  transform: translateY(-1px);
+}
+
+.home-inventory-button:active {
+  transform: translateY(0);
+}

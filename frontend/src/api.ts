@@ -199,6 +199,50 @@ export async function getAgents(
   return response.json();
 }
 
+/* =========================================================
+   DEVICE ENROLLMENT
+   ========================================================= */
+
+export type DeviceEnrollmentResponse = {
+  status: string;
+  enrollment_code: string;
+  expires_at: string;
+  message: string;
+};
+
+
+export async function createDeviceEnrollment(
+  token: string,
+): Promise<DeviceEnrollmentResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/device-enrollments`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    let message =
+      `Failed to create enrollment code: ${response.status}`;
+
+    try {
+      const error = await response.json();
+
+      if (typeof error.detail === "string") {
+        message = error.detail;
+      }
+    } catch {
+      // Keep default message.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
+}
 
 /* =========================================================
    REMOTE SESSION

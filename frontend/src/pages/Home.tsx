@@ -136,7 +136,7 @@ function Home({
 
           <button
             type="button"
-            className="TECHAIPILOT-secondary-button"
+            className="home-inventory-button"
             onClick={() => onNavigate("devices")}
           >
             OPEN DEVICE INVENTORY
