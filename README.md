@@ -2,43 +2,59 @@
 
 ## Intelligent IT Operations & Secure Remote Support Platform
 
-TechAIPILOT is an enterprise-focused platform designed to combine secure remote technical assistance, endpoint intelligence, automated diagnostics, controlled remediation, security assessment, and IT operations analytics.
+TechAIPILOT is a Windows endpoint management and secure remote-support platform consisting of:
 
-## MVP v0.1
+- A Windows endpoint Agent
+- A FastAPI backend
+- PostgreSQL database
+- React web administration console
+- Secure customer device enrollment
+- Remote desktop screen streaming and control
+- Endpoint telemetry and management
 
-The first version focuses on:
+## Current Release
 
-- Windows endpoint agent
-- Centralized endpoint management
-- System telemetry
-- Endpoint diagnostics
-- Controlled remediation
-- Audit logging
-- Web-based administration console
+**Version:** `1.0.0`
+
+**Release status:** Stable MVP / v1.0 release
+
+The v1.0 release provides a complete customer onboarding and remote-support workflow:
+
+1. Customer creates a device enrollment code from the web console.
+2. Customer installs the Windows Agent.
+3. Agent is enrolled using the temporary enrollment code.
+4. Backend securely associates the Agent with the customer's organization.
+5. Agent starts automatically when the Windows user logs in.
+6. Customer can view endpoint status and telemetry.
+7. Customer can initiate a remote support session.
+8. Agent streams the Windows desktop to the web console.
+9. Authorized users can control the remote desktop.
+10. Sessions can be ended cleanly from the console.
+
+---
 
 ## Architecture
 
-Windows Endpoint
-        |
-        v
-TechAIPILOT Agent
-        |
-        v
-TechAIPILOT API
-        |
-        +---- PostgreSQL
-        |
-        v
-TechAIPILOT Console
-
-## Project Structure
-
-- `backend/` — FastAPI backend and APIs
-- `agent/` — Windows endpoint agent
-- `frontend/` — React administration console
-- `docs/` — Architecture, API, security and phase documentation
-- `scripts/` — Development and deployment utilities
-
-## Development Status
-
-**Current Phase:** MVP v0.1 — Foundation
+```text
+                         TechAIPILOT Console
+                         React / Vite
+                               |
+                               | HTTPS / WSS
+                               v
+                     +----------------------+
+                     |   FastAPI Backend     |
+                     |                      |
+                     | Authentication       |
+                     | Organizations        |
+                     | Agents               |
+                     | Enrollment           |
+                     | Remote Sessions      |
+                     +----------+-----------+
+                                |
+                     +----------+-----------+
+                     |                      |
+                     v                      v
+                PostgreSQL          Windows Agent
+                                      |
+                                      v
+                              Customer Windows PC
