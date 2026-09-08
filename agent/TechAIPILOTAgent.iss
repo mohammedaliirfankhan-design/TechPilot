@@ -40,6 +40,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 Source: ".\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: ".\dist\TechAIPILOTEnrollment.exe"; DestDir: "{tmp}"; Flags: ignoreversion dontcopy
 
 
 [Dirs]
@@ -50,14 +51,13 @@ Name: "{commonappdata}\TechAIPILOT\config"
 
 [Registry]
 Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "TECHAIPILOT_BACKEND_URL"; ValueData: "{code:BackendUrl}"; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "TECHAIPILOT_AGENT_TOKEN"; ValueData: "{code:AgentToken}"; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "TECHAIPILOT_DATA_DIR"; ValueData: "{commonappdata}\TechAIPILOT\data"; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "TECHAIPILOT_LOG_DIR"; ValueData: "{commonappdata}\TechAIPILOT\logs"; Flags: uninsdeletevalue
 
 
 [UninstallRun]
-Filename: "{sys}\schtasks.exe"; Parameters: "/End /TN ""TechAIPILOT Agent"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""TechAIPILOT Agent"" /F"; Flags: runhidden waituntilterminated
+Filename: "schtasks.exe"; Parameters: "/End /TN ""TechAIPILOT Agent"""; Flags: runhidden; RunOnceId: "EndTechAIPILOTAgent"
+Filename: "schtasks.exe"; Parameters: "/Delete /TN ""TechAIPILOT Agent"" /F"; Flags: runhidden; RunOnceId: "DeleteTechAIPILOTAgent"
 
 
 [UninstallDelete]
@@ -68,6 +68,7 @@ Type: files; Name: "{app}\TechAIPILOTAgentLauncher.ps1"
 
 var
   ConfigPage: TInputQueryWizardPage;
+  EnrollmentToken: String;
 
 
 function BackendUrl(Param: String): String;
@@ -76,11 +77,144 @@ begin
 end;
 
 
-function AgentToken(Param: String): String;
+function EnrollmentCode(Param: String): String;
 begin
   Result := Trim(ConfigPage.Values[1]);
 end;
 
+function ReadEnrollmentToken(const ResultPath: String): String;
+var
+  Content: AnsiString;
+  TextContent: String;
+  Marker: String;
+  StartPos: Integer;
+  EndPos: Integer;
+begin
+  Result := '';
+
+  if not LoadStringFromFile(ResultPath, Content) then
+  Exit;
+
+TextContent := String(Content);
+
+  Marker := '"agent_token": "';
+  StartPos := Pos(Marker, TextContent);
+
+  if StartPos = 0 then
+    Exit;
+
+  StartPos := StartPos + Length(Marker);
+  EndPos := StartPos;
+
+  while (EndPos <= Length(TextContent)) and
+  (TextContent[EndPos] <> '"') do
+  begin
+    Inc(EndPos);
+  end;
+
+  if EndPos <= Length(TextContent) then
+  Result := Copy(TextContent, StartPos, EndPos - StartPos);
+end;
+
+function RunEnrollment: Boolean;
+var
+  EnrollmentExePath: String;
+  EnrollmentResultPath: String;
+  Parameters: String;
+  ResultCode: Integer;
+begin
+  Result := False;
+  EnrollmentExePath :=
+    ExpandConstant(
+      '{tmp}\TechAIPILOTEnrollment.exe'
+    );
+
+  EnrollmentResultPath :=
+    ExpandConstant(
+      '{tmp}\TechAIPILOTEnrollmentResult.json'
+    );
+
+  ExtractTemporaryFile(
+    'TechAIPILOTEnrollment.exe'
+  );
+
+  Parameters :=
+    '--backend-url "' +
+    BackendUrl('') +
+    '" ' +
+    '--enrollment-code "' +
+    EnrollmentCode('') +
+    '" ' +
+    '--result-file "' +
+    EnrollmentResultPath +
+    '"';
+
+  if FileExists(EnrollmentResultPath) then
+    DeleteFile(EnrollmentResultPath);
+
+  if not Exec(
+    EnrollmentExePath,
+    Parameters,
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+  begin
+    MsgBox(
+      'TechAIPILOT device enrollment could not be started.',
+      mbError,
+      MB_OK
+    );
+    Exit;
+  end;
+
+  if ResultCode <> 0 then
+  begin
+    MsgBox(
+      'Device enrollment failed. Please verify the enrollment code and try again.',
+      mbError,
+      MB_OK
+    );
+    Exit;
+  end;
+
+  if not FileExists(EnrollmentResultPath) then
+  begin
+    MsgBox(
+      'Device enrollment did not return a result.',
+      mbError,
+      MB_OK
+    );
+    Exit;
+  end;
+
+  EnrollmentToken := ReadEnrollmentToken(EnrollmentResultPath);
+
+  if EnrollmentToken = '' then
+  begin
+    MsgBox(
+      'Device enrollment completed, but no agent token was returned.',
+      mbError,
+      MB_OK
+    );
+    Exit;
+  end;
+
+  if Pos('tpa_', LowerCase(EnrollmentToken)) <> 1 then
+  begin
+    MsgBox(
+      'Device enrollment returned an invalid agent token.',
+      mbError,
+      MB_OK
+    );
+    Exit;
+  end;
+
+  DeleteFile(EnrollmentResultPath);
+
+  Result := True;
+end;
 
 function XmlEscape(const Value: String): String;
 begin
@@ -130,7 +264,7 @@ begin
       wpSelectDir,
       'TechAIPILOT Agent Configuration',
       'Connect this agent to your TechAIPILOT server',
-      'Enter the backend URL and the agent enrollment credential.'
+      'Enter the backend URL and the device enrollment code provided by your TechAIPILOT dashboard.'
     );
 
   ConfigPage.Add(
@@ -139,8 +273,8 @@ begin
   );
 
   ConfigPage.Add(
-    'Agent token:',
-    True
+    'Enrollment code:',
+    False
   );
 
   ConfigPage.Values[0] :=
@@ -194,25 +328,32 @@ begin
 
 
     if Trim(ConfigPage.Values[1]) = '' then
-    begin
-      MsgBox(
-        'Agent token is required.',
-        mbError,
-        MB_OK
-      );
+begin
+  MsgBox(
+    'Enrollment code is required.',
+    mbError,
+    MB_OK
+  );
 
+  Result := False;
+  Exit;
+end;
+
+    if not RunEnrollment then
+    begin
       Result := False;
       Exit;
     end;
 
-
-    if Pos(
-      'tpa_',
-      LowerCase(Trim(ConfigPage.Values[1]))
-    ) <> 1 then
+    if not RegWriteStringValue(
+      HKEY_CURRENT_USER,
+      'Environment',
+      'TECHAIPILOT_AGENT_TOKEN',
+      EnrollmentToken
+    ) then
     begin
       MsgBox(
-        'The agent token format is invalid.',
+        'The device was enrolled, but the Agent configuration could not be saved.',
         mbError,
         MB_OK
       );
@@ -239,11 +380,11 @@ var
 begin
 
   if CurStep = ssPostInstall then
-  begin
+begin
 
-    //
-    // Create launcher.
-    //
+  //
+  // Create launcher.
+  //
     // The launcher reads the configuration from
     // the current user's environment and passes it
     // to the interactive agent process.
@@ -484,6 +625,19 @@ begin
       ResultCode
     );
 
+  end;
+
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    RegDeleteValue(
+      HKEY_CURRENT_USER,
+      'Environment',
+      'TECHAIPILOT_AGENT_TOKEN'
+    );
   end;
 
 end;
