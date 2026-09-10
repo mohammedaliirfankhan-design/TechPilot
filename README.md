@@ -1,8 +1,8 @@
-# TechPilot
+# TechAIPILOT
 
 ## Intelligent IT Operations & Secure Remote Support Platform
 
-TechPilot is an enterprise-focused platform designed to combine secure remote technical assistance, endpoint intelligence, automated diagnostics, controlled remediation, security assessment, and IT operations analytics.
+TechAIPILOT is an enterprise-focused platform designed to combine secure remote technical assistance, endpoint intelligence, automated diagnostics, controlled remediation, security assessment, and IT operations analytics.
 
 ## MVP v0.1
 
@@ -21,15 +21,15 @@ The first version focuses on:
 Windows Endpoint
         |
         v
-TechPilot Agent
+TechAIPILOT Agent
         |
         v
-TechPilot API
+TechAIPILOT API
         |
         +---- PostgreSQL
         |
         v
-TechPilot Console
+TechAIPILOT Console
 
 ## Project Structure
 
