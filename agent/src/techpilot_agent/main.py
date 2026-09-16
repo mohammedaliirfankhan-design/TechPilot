@@ -9,6 +9,7 @@ from techpilot_agent.config import BACKEND_URL, AGENT_TOKEN
 from techpilot_agent.identity.device_id import get_device_id
 from techpilot_agent.logging_config import configure_logging
 from techpilot_agent.telemetry.collector import collect_telemetry
+from techpilot_agent.shell.worker import ShellWorker
 
 from remote.stream import RemoteScreenStreamer
 from remote.control import RemoteControlClient
@@ -525,6 +526,21 @@ def main(
 
     print(
         "[DEBUG] Backend client initialized"
+    )
+
+    # =================================================
+    # SHELL WORKER
+    # =================================================
+
+    shell_worker = ShellWorker(
+        client,
+        device_id,
+    )
+
+    shell_worker.start()
+
+    print(
+        "[SHELL] Shell worker started."
     )
 
     # =================================================

@@ -6,6 +6,8 @@ from app.models.remote_session import RemoteSession
 from app.models.organization import Organization
 from app.models.organization_user import OrganizationUser
 from app.models.device_enrollment_token import DeviceEnrollmentToken
+from app.models.shell_session import ShellSession
+from app.models.shell_command import ShellCommand
 
 __all__ = [
     "User",
@@ -16,4 +18,6 @@ __all__ = [
     "Organization",
     "OrganizationUser",
     "DeviceEnrollmentToken",
+    "ShellSession",
+    "ShellCommand",
 ]

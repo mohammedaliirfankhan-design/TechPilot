@@ -77,3 +77,62 @@ class TechPilotClient:
         )
         response.raise_for_status()
         return response.json()
+
+    # ------------------------------------------------------------------
+    # Shell session / command API
+    # ------------------------------------------------------------------
+
+    def get_pending_shell_session(self, device_id: str) -> dict:
+        response = requests.get(
+            f"{self.base_url}/api/v1/shell/agent/sessions/"
+            f"pending/{device_id}",
+            headers=self._headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def accept_shell_session(self, session_id: int) -> dict:
+        response = requests.post(
+            f"{self.base_url}/api/v1/shell/agent/sessions/"
+            f"{session_id}/accept",
+            headers=self._headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def get_pending_shell_command(self, session_id: int) -> dict:
+        response = requests.get(
+            f"{self.base_url}/api/v1/shell/agent/sessions/"
+            f"{session_id}/commands/pending",
+            headers=self._headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def submit_shell_command_result(
+        self,
+        command_id: int,
+        result: dict,
+    ) -> dict:
+        response = requests.post(
+            f"{self.base_url}/api/v1/shell/agent/commands/"
+            f"{command_id}/result",
+            json=result,
+            headers=self._headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def get_shell_session_status(self, session_id: int) -> dict:
+        response = requests.get(
+            f"{self.base_url}/api/v1/shell/agent/sessions/"
+            f"{session_id}/status",
+            headers=self._headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json()
