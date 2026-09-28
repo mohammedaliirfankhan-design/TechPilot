@@ -131,6 +131,7 @@ function App() {
             setToken(null);
             setCurrentUser(null);
             setAuthScreen("login");
+            setShowLanding(true);
           }
         } finally {
           if (!cancelled) {
@@ -171,6 +172,7 @@ function App() {
         setToken(null);
         setCurrentUser(null);
         setAuthScreen("login");
+        setShowLanding(true);
         setAuthLoading(false);
       });
   };
