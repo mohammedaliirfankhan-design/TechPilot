@@ -19,6 +19,7 @@ from app.security.agent_auth import get_current_agent
 from app.services.organization import (
     get_user_default_organization,
 )
+from app.services.audit import record_audit_event
 from app.services.shell import (
     get_authorized_device,
     get_authorized_shell_session,
@@ -108,6 +109,26 @@ def create_shell_session(
     )
 
     db.add(session)
+    db.flush()
+
+    record_audit_event(
+        db,
+        organization_id=organization.id,
+        user_id=current_user.id,
+        device_id=agent.device_id,
+        event_type="SHELL_SESSION_CREATED",
+        category="DEVICES",
+        action="CREATE",
+        resource_type="shell_session",
+        resource_id=str(session.id),
+        status="SUCCESS",
+        risk_level="LOW",
+        message=f"Shell session created for device {agent.device_id}.",
+        event_metadata={
+            "shell_type": session.shell_type,
+        },
+    )
+
     db.commit()
     db.refresh(session)
 
@@ -176,8 +197,26 @@ def close_shell_session(
         session.status = "ENDED"
         session.ended_at = datetime.now(timezone.utc)
 
-        db.commit()
-        db.refresh(session)
+        record_audit_event(
+            db,
+            organization_id=session.organization_id,
+            user_id=current_user.id,
+            device_id=session.device_id,
+            event_type="SHELL_SESSION_CLOSED",
+            category="DEVICES",
+            action="CLOSE",
+            resource_type="shell_session",
+            resource_id=str(session.id),
+            status="SUCCESS",
+            risk_level="LOW",
+            message=f"Shell session closed for device {session.device_id}.",
+            event_metadata={
+                "shell_type": session.shell_type,
+            },
+        )
+
+    db.commit()
+    db.refresh(session)
 
     return ShellSessionResponse(
         session_id=session.id,
@@ -232,6 +271,27 @@ def create_shell_command(
     )
 
     db.add(command)
+    db.flush()
+
+    record_audit_event(
+        db,
+        organization_id=session.organization_id,
+        user_id=current_user.id,
+        device_id=session.device_id,
+        event_type="SHELL_COMMAND_SUBMITTED",
+        category="SECURITY",
+        action="EXECUTE",
+        resource_type="shell_command",
+        resource_id=str(command.id),
+        status="SUCCESS",
+        risk_level="HIGH",
+        message=f"Shell command submitted for device {session.device_id}.",
+        event_metadata={
+            "shell_type": session.shell_type,
+            "session_id": session.id,
+        },
+    )
+
     db.commit()
     db.refresh(command)
 
@@ -383,6 +443,27 @@ def accept_shell_session(
         )
 
     session.status = "ACTIVE"
+
+    record_audit_event(
+        db,
+        organization_id=session.organization_id,
+        user_id=session.user_id,
+        device_id=session.device_id,
+        event_type="SHELL_SESSION_ACCEPTED",
+        category="DEVICES",
+        action="ACCEPT",
+        resource_type="shell_session",
+        resource_id=str(session.id),
+        status="SUCCESS",
+        risk_level="LOW",
+        message=(
+            f"Shell session accepted for device "
+            f"{session.device_id}."
+        ),
+        event_metadata={
+            "shell_type": session.shell_type,
+        },
+    )
 
     db.commit()
     db.refresh(session)
@@ -582,10 +663,39 @@ def submit_shell_command_result(
 
     if timed_out:
         command.status = "TIMEOUT"
+        audit_event_type = "SHELL_COMMAND_TIMEOUT"
+        audit_status = "TIMEOUT"
     elif exit_code == 0:
         command.status = "COMPLETED"
+        audit_event_type = "SHELL_COMMAND_COMPLETED"
+        audit_status = "SUCCESS"
     else:
         command.status = "FAILED"
+        audit_event_type = "SHELL_COMMAND_FAILED"
+        audit_status = "FAILED"
+
+    record_audit_event(
+        db,
+        organization_id=session.organization_id,
+        user_id=session.user_id,
+        device_id=session.device_id,
+        event_type=audit_event_type,
+        category="SECURITY",
+        action="EXECUTE",
+        resource_type="shell_command",
+        resource_id=str(command.id),
+        status=audit_status,
+        risk_level="HIGH",
+        message=(
+            f"Shell command {command.status.lower()} "
+            f"for device {session.device_id}."
+        ),
+        event_metadata={
+            "shell_type": session.shell_type,
+            "session_id": session.id,
+            "exit_code": exit_code,
+        },
+    )
 
     db.commit()
     db.refresh(command)

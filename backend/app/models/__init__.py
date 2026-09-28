@@ -8,6 +8,7 @@ from app.models.organization_user import OrganizationUser
 from app.models.device_enrollment_token import DeviceEnrollmentToken
 from app.models.shell_session import ShellSession
 from app.models.shell_command import ShellCommand
+from app.models.audit_event import AuditEvent
 
 __all__ = [
     "User",
@@ -20,4 +21,5 @@ __all__ = [
     "DeviceEnrollmentToken",
     "ShellSession",
     "ShellCommand",
+    "AuditEvent",
 ]
