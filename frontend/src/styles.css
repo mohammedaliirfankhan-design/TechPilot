@@ -17130,3 +17130,633 @@ body {
 .home-inventory-button:active {
   transform: translateY(0);
 }
+
+/* =========================================================
+   TECHPILOT — REMOTE SHELL UI
+   Functional shell styling / terminal presentation
+   ========================================================= */
+
+/* ---------------------------------------------------------
+   SHELL CARD LAYOUT
+   --------------------------------------------------------- */
+
+.clean-remote-card:has(.shell-launch-panel),
+.clean-remote-card:has(.shell-console-panel) {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(460px, 1.1fr);
+  align-items: center;
+  gap: 44px;
+  padding: 34px 38px;
+}
+
+.clean-remote-card:has(.shell-launch-panel) .clean-remote-copy,
+.clean-remote-card:has(.shell-console-panel) .clean-remote-copy {
+  max-width: 720px;
+  min-width: 0;
+}
+
+.clean-remote-card:has(.shell-launch-panel) .clean-remote-copy p,
+.clean-remote-card:has(.shell-console-panel) .clean-remote-copy p {
+  max-width: 680px;
+}
+
+
+/* ---------------------------------------------------------
+   SHELL LAUNCH AREA
+   --------------------------------------------------------- */
+
+.shell-launch-panel {
+  width: 100%;
+  min-width: 0;
+
+  display: grid;
+  grid-template-columns: auto minmax(170px, 1fr);
+  align-items: center;
+  gap: 12px;
+
+  padding: 20px;
+
+  border: 1px solid rgba(80, 220, 255, 0.12);
+  border-radius: 14px;
+
+  background:
+    linear-gradient(
+      145deg,
+      rgba(12, 24, 39, 0.78),
+      rgba(5, 11, 20, 0.88)
+    );
+
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    0 12px 35px rgba(0, 0, 0, 0.16);
+}
+
+.shell-select-label {
+  color: #71849b;
+  font-family: "Oxanium", sans-serif;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.shell-type-select {
+  width: 100%;
+  min-height: 42px;
+
+  padding: 0 36px 0 13px;
+
+  border: 1px solid rgba(100, 170, 220, 0.18);
+  border-radius: 9px;
+
+  outline: none;
+
+  background:
+    linear-gradient(
+      145deg,
+      rgba(18, 31, 49, 0.96),
+      rgba(8, 16, 28, 0.98)
+    );
+
+  color: #dce8f5;
+
+  font-family: "Inter", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  appearance: auto;
+
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.shell-type-select:hover {
+  border-color: rgba(54, 221, 245, 0.38);
+}
+
+.shell-type-select:focus {
+  border-color: rgba(54, 221, 245, 0.55);
+
+  box-shadow:
+    0 0 0 3px rgba(54, 221, 245, 0.07),
+    0 0 22px rgba(54, 221, 245, 0.08);
+}
+
+.shell-type-select option {
+  background: #0a111d;
+  color: #dce8f5;
+}
+
+
+/* ---------------------------------------------------------
+   ACTIVE SHELL CONSOLE
+   --------------------------------------------------------- */
+
+.shell-console-panel {
+  width: 100%;
+  min-width: 0;
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+
+  padding: 20px;
+
+  border: 1px solid rgba(54, 221, 245, 0.15);
+  border-radius: 14px;
+
+  background:
+    radial-gradient(
+      circle at 92% 5%,
+      rgba(54, 221, 245, 0.055),
+      transparent 30%
+    ),
+    linear-gradient(
+      145deg,
+      rgba(10, 21, 35, 0.94),
+      rgba(4, 9, 17, 0.98)
+    );
+
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    0 18px 45px rgba(0, 0, 0, 0.20);
+}
+
+
+/* ---------------------------------------------------------
+   SHELL HEADER
+   --------------------------------------------------------- */
+
+.shell-console-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+
+  min-width: 0;
+
+  padding-bottom: 13px;
+
+  border-bottom: 1px solid rgba(120, 160, 220, 0.08);
+}
+
+.shell-console-header > div {
+  min-width: 0;
+
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.shell-console-header .eyebrow {
+  margin: 0;
+}
+
+.shell-console-header strong {
+  color: #e4edf8;
+
+  font-family: "Oxanium", sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+
+  line-height: 1.2;
+}
+
+
+/* ---------------------------------------------------------
+   SHELL STATUS
+   --------------------------------------------------------- */
+
+.shell-status {
+  flex-shrink: 0;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+
+  min-height: 28px;
+  padding: 0 10px;
+
+  border: 1px solid rgba(50, 230, 173, 0.22);
+  border-radius: 999px;
+
+  background: rgba(50, 230, 173, 0.055);
+
+  color: #79e8c5;
+
+  font-family: "Oxanium", sans-serif;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+
+  text-transform: uppercase;
+}
+
+.shell-status::before {
+  content: "";
+
+  width: 6px;
+  height: 6px;
+
+  border-radius: 50%;
+
+  background: #32e6ad;
+
+  box-shadow:
+    0 0 8px rgba(50, 230, 173, 0.8);
+
+  animation: shell-status-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes shell-status-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+
+/* ---------------------------------------------------------
+   COMMAND INPUT
+   --------------------------------------------------------- */
+
+.shell-command-row {
+  width: 100%;
+  min-width: 0;
+
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.shell-command-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+
+  padding: 0 13px;
+
+  border: 1px solid rgba(100, 170, 220, 0.18);
+  border-radius: 9px;
+
+  outline: none;
+
+  background:
+    rgba(2, 7, 13, 0.92);
+
+  color: #dce8f5;
+
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+  font-weight: 500;
+
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.shell-command-input::placeholder {
+  color: #53657a;
+}
+
+.shell-command-input:hover {
+  border-color: rgba(54, 221, 245, 0.25);
+}
+
+.shell-command-input:focus {
+  border-color: rgba(54, 221, 245, 0.55);
+
+  box-shadow:
+    0 0 0 3px rgba(54, 221, 245, 0.07),
+    0 0 22px rgba(54, 221, 245, 0.08);
+}
+
+.shell-command-row .techpilot-primary-button {
+  min-width: 118px;
+  min-height: 44px;
+}
+
+
+/* ---------------------------------------------------------
+   SHELL OUTPUT
+   --------------------------------------------------------- */
+
+.shell-output {
+  width: 100%;
+  min-width: 0;
+
+  overflow: hidden;
+
+  border: 1px solid rgba(120, 160, 220, 0.10);
+  border-radius: 10px;
+
+  background:
+    #02070d;
+
+  box-shadow:
+    inset 0 1px 12px rgba(0, 0, 0, 0.28);
+}
+
+.shell-output-label {
+  padding: 10px 13px;
+
+  border-bottom: 1px solid rgba(120, 160, 220, 0.08);
+
+  color: #5f748c;
+
+  font-family: "Oxanium", sans-serif;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+
+  text-transform: uppercase;
+}
+
+.shell-output pre {
+  width: 100%;
+  max-width: 100%;
+  height: 260px;
+  max-height: 260px;
+
+  margin: 0;
+  padding: 15px;
+
+  overflow-x: auto;
+  overflow-y: auto;
+
+  box-sizing: border-box;
+
+  color: #cbd8e6;
+
+  font-family:
+    "Cascadia Code",
+    "Consolas",
+    "Courier New",
+    monospace;
+
+  font-size: 11px;
+  font-weight: 500;
+
+  line-height: 1.55;
+
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+
+  scrollbar-width: thin;
+}
+
+.shell-output pre::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.shell-output pre::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.shell-output pre::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(100, 170, 220, 0.22);
+}
+
+.shell-output pre::-webkit-scrollbar-thumb:hover {
+  background: rgba(54, 221, 245, 0.35);
+}
+
+
+/* ---------------------------------------------------------
+   SHELL ERROR
+   --------------------------------------------------------- */
+
+.shell-error {
+  width: 100%;
+  box-sizing: border-box;
+
+  padding: 10px 12px;
+
+  border: 1px solid rgba(255, 99, 128, 0.20);
+  border-radius: 8px;
+
+  background: rgba(255, 70, 105, 0.055);
+
+  color: #ff9aae;
+
+  font-family: "Inter", sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+
+  line-height: 1.5;
+}
+
+
+/* ---------------------------------------------------------
+   SHELL ACTIONS
+   --------------------------------------------------------- */
+
+.shell-console-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+
+  padding-top: 2px;
+}
+
+.shell-console-actions .TECHAIPILOT-secondary-button {
+  min-height: 36px;
+  padding: 0 14px;
+
+  border-color: rgba(255, 99, 128, 0.24);
+
+  background: rgba(255, 70, 105, 0.045);
+
+  color: #ff9aae;
+
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+
+.shell-console-actions .TECHAIPILOT-secondary-button:hover {
+  border-color: rgba(255, 99, 128, 0.42);
+
+  background: rgba(255, 70, 105, 0.08);
+}
+
+
+/* ---------------------------------------------------------
+   DISABLED STATES
+   --------------------------------------------------------- */
+
+.shell-command-input:disabled,
+.shell-type-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.shell-command-row .techpilot-primary-button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  transform: none;
+}
+
+
+/* ---------------------------------------------------------
+   RESPONSIVE SHELL
+   --------------------------------------------------------- */
+
+@media (max-width: 1100px) {
+  .clean-remote-card:has(.shell-launch-panel),
+  .clean-remote-card:has(.shell-console-panel) {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .clean-remote-card:has(.shell-launch-panel) .clean-remote-copy,
+  .clean-remote-card:has(.shell-console-panel) .clean-remote-copy {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 700px) {
+  .clean-remote-card:has(.shell-launch-panel),
+  .clean-remote-card:has(.shell-console-panel) {
+    padding: 26px 22px;
+    gap: 20px;
+  }
+
+  .shell-launch-panel {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .shell-select-label {
+    margin-bottom: -4px;
+  }
+
+  .shell-command-row {
+    grid-template-columns: 1fr;
+  }
+
+  .shell-command-row .techpilot-primary-button {
+    width: 100%;
+  }
+
+  .shell-console-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .shell-status {
+    align-self: flex-start;
+  }
+
+  .shell-output pre {
+    height: 220px;
+    max-height: 220px;
+  }
+}
+
+/* =========================================================
+   DEVICE HEADER - FINAL BACK BUTTON LAYOUT
+   ========================================================= */
+
+.clean-device-header {
+  position: relative;
+  display: block;
+  padding: 34px 38px;
+}
+
+/* Back button stays in normal document flow */
+.clean-device-back-button {
+  position: static;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+
+  margin: 0 0 10px 0;
+
+  min-height: 34px;
+  padding: 0 13px;
+
+  border: 1px solid rgba(54, 221, 245, 0.22);
+  border-radius: 8px;
+
+  background: rgba(8, 18, 30, 0.78);
+  color: #8ea2b8;
+
+  font-family: "Oxanium", sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+
+  cursor: pointer;
+
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    0 6px 18px rgba(0, 0, 0, 0.12);
+
+  transition:
+    color 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.clean-device-back-button:hover {
+  border-color: rgba(54, 221, 245, 0.42);
+  background: rgba(12, 29, 44, 0.92);
+  color: #dce8f5;
+
+  box-shadow:
+    0 0 18px rgba(54, 221, 245, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+
+  transform: translateY(-1px);
+}
+
+.clean-device-back-button:active {
+  transform: translateY(0);
+}
+
+.clean-device-back-button:focus-visible {
+  outline: none;
+
+  border-color: rgba(54, 221, 245, 0.55);
+
+  box-shadow:
+    0 0 0 3px rgba(54, 221, 245, 0.08),
+    0 0 18px rgba(54, 221, 245, 0.08);
+}
+
+/* Keep the registered badge in the upper-right */
+.clean-device-status {
+  position: absolute;
+  top: 44px;
+  right: 38px;
+}
+
+@media (max-width: 700px) {
+  .clean-device-header {
+    padding: 28px 22px;
+  }
+
+  .clean-device-status {
+    position: static;
+    margin-top: 18px;
+  }
+}

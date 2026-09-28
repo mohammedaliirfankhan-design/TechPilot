@@ -390,3 +390,217 @@ export function getRemoteControlUrl(
     `?token=${encodeURIComponent(token)}`
   );
 }
+
+/* =========================================================
+   REMOTE SHELL
+   ========================================================= */
+
+export type ShellType =
+  | "POWERSHELL"
+  | "CMD";
+
+export type ShellSession = {
+  session_id: number;
+  device_id: string;
+  shell_type: string;
+  status: string;
+  started_at: string;
+  ended_at: string | null;
+};
+
+export type ShellCommand = {
+  command_id: number;
+  session_id: number;
+  command: string;
+  status: string;
+  stdout: string | null;
+  stderr: string | null;
+  exit_code: number | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+};
+
+export async function createShellSession(
+  deviceId: string,
+  shellType: ShellType,
+  token: string,
+): Promise<ShellSession> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/shell/sessions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        device_id: deviceId,
+        shell_type: shellType,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    let message =
+      `Failed to create shell session: ${response.status}`;
+
+    try {
+      const error = await response.json();
+
+      if (typeof error.detail === "string") {
+        message = error.detail;
+      }
+    } catch {
+      // Keep default message.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
+
+export async function getShellSession(
+  sessionId: number,
+  token: string,
+): Promise<ShellSession> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/shell/sessions/${sessionId}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    let message =
+      `Failed to fetch shell session: ${response.status}`;
+
+    try {
+      const error = await response.json();
+
+      if (typeof error.detail === "string") {
+        message = error.detail;
+      }
+    } catch {
+      // Keep default message.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
+
+export async function closeShellSession(
+  sessionId: number,
+  token: string,
+): Promise<ShellSession> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/shell/sessions/${sessionId}/close`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    let message =
+      `Failed to close shell session: ${response.status}`;
+
+    try {
+      const error = await response.json();
+
+      if (typeof error.detail === "string") {
+        message = error.detail;
+      }
+    } catch {
+      // Keep default message.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
+
+export async function createShellCommand(
+  sessionId: number,
+  command: string,
+  token: string,
+): Promise<ShellCommand> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/shell/sessions/${sessionId}/commands`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        command,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    let message =
+      `Failed to submit shell command: ${response.status}`;
+
+    try {
+      const error = await response.json();
+
+      if (typeof error.detail === "string") {
+        message = error.detail;
+      }
+    } catch {
+      // Keep default message.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
+export async function getShellCommand(
+  commandId: number,
+  token: string,
+): Promise<ShellCommand> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/shell/commands/${commandId}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    let message =
+      `Failed to fetch shell command: ${response.status}`;
+
+    try {
+      const error = await response.json();
+
+      if (typeof error.detail === "string") {
+        message = error.detail;
+      }
+    } catch {
+      // Keep default message.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
+}
