@@ -3,7 +3,10 @@ from sqlalchemy.orm import Session
 from app.models.agent import Agent
 from app.models.shell_session import ShellSession
 from app.models.user import User
-from app.services.organization import get_user_default_organization
+from app.services.organization import (
+    get_user_default_organization,
+    get_user_organization,
+)
 
 
 ACTIVE_SHELL_SESSION_STATUSES = {
@@ -54,3 +57,31 @@ def has_active_shell_session(
     )
 
     return session is not None
+
+def get_authorized_shell_session(
+    db: Session,
+    user: User,
+    session_id: int,
+) -> ShellSession | None:
+    session = (
+        db.query(ShellSession)
+        .filter(
+            ShellSession.id == session_id,
+            ShellSession.user_id == user.id,
+        )
+        .first()
+    )
+
+    if session is None:
+        return None
+
+    organization = get_user_organization(
+        db,
+        user,
+        session.organization_id,
+    )
+
+    if organization is None:
+        return None
+
+    return session

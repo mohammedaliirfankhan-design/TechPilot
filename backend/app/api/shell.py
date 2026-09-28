@@ -21,6 +21,7 @@ from app.services.organization import (
 )
 from app.services.shell import (
     get_authorized_device,
+    get_authorized_shell_session,
     has_active_shell_session,
 )
 
@@ -129,15 +130,11 @@ def get_shell_session(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    session = (
-        db.query(ShellSession)
-        .filter(
-            ShellSession.id == session_id,
-            ShellSession.user_id == current_user.id,
-        )
-        .first()
+    session = get_authorized_shell_session(
+        db,
+        current_user,
+        session_id,
     )
-
     if session is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -163,13 +160,10 @@ def close_shell_session(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    session = (
-        db.query(ShellSession)
-        .filter(
-            ShellSession.id == session_id,
-            ShellSession.user_id == current_user.id,
-        )
-        .first()
+    session = get_authorized_shell_session(
+        db,
+        current_user,
+        session_id,
     )
 
     if session is None:
@@ -210,13 +204,10 @@ def create_shell_command(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    session = (
-        db.query(ShellSession)
-        .filter(
-            ShellSession.id == session_id,
-            ShellSession.user_id == current_user.id,
-        )
-        .first()
+    session = get_authorized_shell_session(
+        db,
+        current_user,
+        session_id,
     )
 
     if session is None:
@@ -279,6 +270,17 @@ def get_shell_command(
         )
         .first()
     )
+    authorized_session = None
+
+    if command is not None:
+        authorized_session = get_authorized_shell_session(
+            db,
+            current_user,
+            command.session_id,
+        )
+
+    if authorized_session is None:
+        command = None
 
     if command is None:
         raise HTTPException(
