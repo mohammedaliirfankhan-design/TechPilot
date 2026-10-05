@@ -9,6 +9,7 @@ from app.api.auth import router as auth_router
 from app.config import CORS_ORIGINS
 from app.api.organizations import router as organizations_router
 from app.api.device_enrollment import router as device_enrollment_router
+from app.api.network_security import router as network_security_router
 from app.api import shell
 
 
@@ -28,6 +29,7 @@ app.add_middleware(
 
 app.include_router(agents_router)
 app.include_router(telemetry_router)
+app.include_router(network_security_router)
 app.include_router(remote_router)
 app.include_router(auth_router)
 app.include_router(organizations_router)
