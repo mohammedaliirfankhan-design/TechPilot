@@ -11,6 +11,9 @@ from techpilot_agent.logging_config import configure_logging
 from techpilot_agent.telemetry.collector import collect_telemetry
 from techpilot_agent.shell.worker import ShellWorker
 
+from techpilot_agent.network.collector import collect_network_telemetry
+from techpilot_agent.network.firewall import collect_firewall_posture
+
 from remote.stream import RemoteScreenStreamer
 from remote.control import RemoteControlClient
 
@@ -22,6 +25,7 @@ from remote.control import RemoteControlClient
 SESSION_CHECK_INTERVAL = 2
 SESSION_STATUS_INTERVAL = 1
 HEARTBEAT_INTERVAL = 30
+NETWORK_TELEMETRY_INTERVAL = 60
 
 
 # =========================================================
@@ -590,6 +594,8 @@ def main(
 
     current_session_id = None
 
+    last_network_telemetry = 0.0
+
     # =================================================
     # MAIN LOOP
     # =================================================
@@ -640,6 +646,44 @@ def main(
                     f"[DEBUG] Heartbeat: "
                     f"{heartbeat}"
                 )
+
+
+                            # =================================================
+            # NETWORK SECURITY TELEMETRY
+            # =================================================
+
+            now = time.monotonic()
+
+            if (
+                current_session_id is None
+                and now - last_network_telemetry
+                >= NETWORK_TELEMETRY_INTERVAL
+            ):
+                try:
+                    network_data = collect_network_telemetry()
+                    network_data["firewall"] = (
+                        collect_firewall_posture()
+                    )
+
+                    network_response = (
+                        client.send_network_telemetry(
+                            network_data
+                        )
+                    )
+
+                    last_network_telemetry = now
+
+                    if debug:
+                        print(
+                            "[NETWORK] Telemetry accepted: "
+                            f"{network_response}"
+                        )
+
+                except Exception as e:
+                    print(
+                        "[NETWORK] Telemetry cycle failed: "
+                        f"{type(e).__name__}: {e}"
+                    )
 
             # =================================================
             # SAFETY:

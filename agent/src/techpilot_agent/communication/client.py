@@ -41,6 +41,16 @@ class TechPilotClient:
         response.raise_for_status()
         return response.json()
 
+    def send_network_telemetry(self, network_data: dict) -> dict:
+        response = requests.post(
+            f"{self.base_url}/api/v1/security/network/telemetry",
+            json=network_data,
+            headers=self._headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json()
+
     def get_pending_remote_session(self, device_id: str) -> dict:
         response = requests.get(
             f"{self.base_url}/api/v1/remote/sessions/pending/{device_id}",
