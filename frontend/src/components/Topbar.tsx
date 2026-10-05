@@ -3,9 +3,7 @@ import {
   useState,
 } from "react";
 
-type Page =
-  | "home"
-  | "devices";
+type Page = "home" | "devices" | "network-security";
 
 type TopbarProps = {
   page: Page;

@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 
-type Page =
-  | "home"
-  | "devices";
+type Page = "home" | "devices" | "network-security";
 
 type SidebarProps = {
   page: Page;
@@ -31,6 +29,12 @@ const navigation: NavigationItem[] = [
     icon: "▣",
     code: "END",
   },
+  {
+    key: "network-security",
+    label: "Network Security",
+    icon: "🔒",
+    code: "NET",
+  }
 ];
 
 function Sidebar({

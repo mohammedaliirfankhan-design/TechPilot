@@ -6,6 +6,7 @@ import {
 import Home from "./pages/Home";
 import Devices from "./pages/Devices";
 import DeviceDetails from "./pages/DeviceDetails";
+import NetworkSecurity from "./pages/NetworkSecurity";
 import RemoteSession from "./pages/RemoteSession";
 import Login from "./pages/login";
 import CreateAccount from "./pages/CreateAccount";
@@ -22,9 +23,7 @@ import type {
   User,
 } from "./api";
 
-export type Page =
-  | "home"
-  | "devices";
+type Page = "home" | "devices" | "network-security";
 
 type AuthScreen =
   | "login"
@@ -39,6 +38,7 @@ const pageTitles: Record<
 > = {
   home: "Home",
   devices: "Devices",
+  "network-security": "Network Security",
 };
 
 const pageDescriptions: Record<
@@ -49,6 +49,7 @@ const pageDescriptions: Record<
     "Secure remote support for your connected endpoints.",
   devices:
     "View connected TechAIPILOT agents and start remote support sessions.",
+    "network-security": "Network visibility, posture, and endpoint telemetry",
 };
 
 function App() {
@@ -287,7 +288,9 @@ function App() {
   />
 );
     }
-
+if (page === "network-security") {
+  return <NetworkSecurity token={token} />;
+}
     if (selectedDeviceId) {
       return (
   <DeviceDetails
