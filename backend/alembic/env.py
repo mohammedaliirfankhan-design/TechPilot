@@ -26,6 +26,11 @@ from app.models.alert import Alert
 from app.models.remote_session import RemoteSession
 from app.models.organization import Organization
 from app.models.organization_user import OrganizationUser
+from app.models.network_snapshot import NetworkSnapshot
+from app.models.network_interface import NetworkInterface
+from app.models.network_connection import NetworkConnection
+from app.models.network_listener import NetworkListener
+from app.models.firewall_posture import FirewallPosture
 
 
 config = context.config
