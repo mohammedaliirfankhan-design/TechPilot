@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.api.auth import get_current_user
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.firewall_posture import FirewallPosture
@@ -8,7 +10,9 @@ from app.models.network_connection import NetworkConnection
 from app.models.network_interface import NetworkInterface
 from app.models.network_listener import NetworkListener
 from app.models.network_snapshot import NetworkSnapshot
+from app.models.user import User
 from app.security.agent_auth import get_current_agent
+from app.services.organization import get_user_default_organization
 
 
 router = APIRouter(
@@ -25,6 +29,27 @@ def _require_agent_organization(current_agent: Agent) -> int:
         )
 
     return current_agent.organization_id
+
+
+def _require_user_organization(
+    db: Session,
+    current_user: User,
+):
+    organization = get_user_default_organization(
+        db,
+        current_user,
+    )
+
+    if organization is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Your account must belong to exactly one active "
+                "organization to access network security data."
+            ),
+        )
+
+    return organization
 
 
 @router.post("/telemetry")
@@ -205,4 +230,325 @@ def receive_network_telemetry(
         "connections_stored": len(connections),
         "listeners_stored": len(listener_records),
         "firewall_stored": True,
+    }
+
+
+# =========================================================
+# NETWORK SECURITY OVERVIEW
+# =========================================================
+
+
+@router.get("/overview")
+def get_network_security_overview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    organization = _require_user_organization(
+        db,
+        current_user,
+    )
+
+    organization_id = organization.id
+
+    total_devices = (
+        db.query(func.count(Agent.id))
+        .filter(
+            Agent.organization_id == organization_id,
+        )
+        .scalar()
+        or 0
+    )
+
+    reporting_devices = (
+        db.query(func.count(func.distinct(NetworkSnapshot.device_id)))
+        .filter(
+            NetworkSnapshot.organization_id == organization_id,
+        )
+        .scalar()
+        or 0
+    )
+
+    total_interfaces = (
+        db.query(func.count(NetworkInterface.id))
+        .join(
+            NetworkSnapshot,
+            NetworkSnapshot.id == NetworkInterface.snapshot_id,
+        )
+        .filter(
+            NetworkSnapshot.organization_id == organization_id,
+        )
+        .scalar()
+        or 0
+    )
+
+    total_connections = (
+        db.query(func.count(NetworkConnection.id))
+        .join(
+            NetworkSnapshot,
+            NetworkSnapshot.id == NetworkConnection.snapshot_id,
+        )
+        .filter(
+            NetworkSnapshot.organization_id == organization_id,
+        )
+        .scalar()
+        or 0
+    )
+
+    total_listeners = (
+        db.query(func.count(NetworkListener.id))
+        .join(
+            NetworkSnapshot,
+            NetworkSnapshot.id == NetworkListener.snapshot_id,
+        )
+        .filter(
+            NetworkSnapshot.organization_id == organization_id,
+        )
+        .scalar()
+        or 0
+    )
+
+    firewall_disabled = (
+        db.query(func.count(FirewallPosture.id))
+        .join(
+            NetworkSnapshot,
+            NetworkSnapshot.id == FirewallPosture.snapshot_id,
+        )
+        .filter(
+            NetworkSnapshot.organization_id == organization_id,
+            (
+                (FirewallPosture.domain_enabled.is_(False))
+                | (FirewallPosture.private_enabled.is_(False))
+                | (FirewallPosture.public_enabled.is_(False))
+            ),
+        )
+        .scalar()
+        or 0
+    )
+
+    latest_snapshot = (
+        db.query(NetworkSnapshot)
+        .filter(
+            NetworkSnapshot.organization_id == organization_id,
+        )
+        .order_by(
+            NetworkSnapshot.collected_at.desc(),
+        )
+        .first()
+    )
+
+    return {
+        "organization_id": organization_id,
+        "total_devices": total_devices,
+        "reporting_devices": reporting_devices,
+        "total_interfaces": total_interfaces,
+        "total_connections": total_connections,
+        "total_listeners": total_listeners,
+        "firewall_disabled_snapshots": firewall_disabled,
+        "latest_snapshot": (
+            {
+                "id": latest_snapshot.id,
+                "device_id": latest_snapshot.device_id,
+                "collected_at": latest_snapshot.collected_at,
+            }
+            if latest_snapshot
+            else None
+        ),
+    }
+
+
+# =========================================================
+# NETWORK SECURITY DEVICE DETAILS
+# =========================================================
+
+
+@router.get("/devices/{device_id}")
+def get_network_device_details(
+    device_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    organization = _require_user_organization(
+        db,
+        current_user,
+    )
+
+    agent = (
+        db.query(Agent)
+        .filter(
+            Agent.device_id == device_id,
+            Agent.organization_id == organization.id,
+        )
+        .first()
+    )
+
+    if agent is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found.",
+        )
+
+    snapshot = (
+        db.query(NetworkSnapshot)
+        .filter(
+            NetworkSnapshot.device_id == device_id,
+            NetworkSnapshot.organization_id == organization.id,
+        )
+        .order_by(
+            NetworkSnapshot.collected_at.desc(),
+        )
+        .first()
+    )
+
+    if snapshot is None:
+        return {
+            "device": {
+                "device_id": agent.device_id,
+                "hostname": agent.hostname,
+                "operating_system": agent.operating_system,
+                "os_version": agent.os_version,
+                "agent_version": agent.agent_version,
+                "last_seen": agent.last_seen,
+            },
+            "snapshot": None,
+        }
+
+    return {
+        "device": {
+            "device_id": agent.device_id,
+            "hostname": agent.hostname,
+            "operating_system": agent.operating_system,
+            "os_version": agent.os_version,
+            "agent_version": agent.agent_version,
+            "last_seen": agent.last_seen,
+        },
+        "snapshot": {
+            "id": snapshot.id,
+            "collected_at": snapshot.collected_at,
+            "interfaces": [
+                {
+                    "id": interface.id,
+                    "interface_name": interface.interface_name,
+                    "mac_address": interface.mac_address,
+                    "is_up": interface.is_up,
+                    "speed_mbps": interface.speed_mbps,
+                    "addresses": interface.addresses,
+                }
+                for interface in snapshot.interfaces
+            ],
+            "connections": [
+                {
+                    "id": connection.id,
+                    "protocol": connection.protocol,
+                    "local_address": connection.local_address,
+                    "local_port": connection.local_port,
+                    "remote_address": connection.remote_address,
+                    "remote_port": connection.remote_port,
+                    "status": connection.status,
+                    "pid": connection.pid,
+                    "process_name": connection.process_name,
+                }
+                for connection in snapshot.connections
+            ],
+            "listeners": [
+                {
+                    "id": listener.id,
+                    "protocol": listener.protocol,
+                    "bind_address": listener.bind_address,
+                    "port": listener.port,
+                    "pid": listener.pid,
+                    "process_name": listener.process_name,
+                }
+                for listener in snapshot.listeners
+            ],
+            "firewall_posture": (
+                {
+                    "available": snapshot.firewall_posture.available,
+                    "domain_enabled": snapshot.firewall_posture.domain_enabled,
+                    "private_enabled": snapshot.firewall_posture.private_enabled,
+                    "public_enabled": snapshot.firewall_posture.public_enabled,
+                    "error": snapshot.firewall_posture.error,
+                }
+                if snapshot.firewall_posture
+                else None
+            ),
+        },
+    }
+
+
+# =========================================================
+# NETWORK SECURITY SNAPSHOT HISTORY
+# =========================================================
+
+
+@router.get("/devices/{device_id}/snapshots")
+def get_network_device_snapshots(
+    device_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    organization = _require_user_organization(
+        db,
+        current_user,
+    )
+
+    agent = (
+        db.query(Agent)
+        .filter(
+            Agent.device_id == device_id,
+            Agent.organization_id == organization.id,
+        )
+        .first()
+    )
+
+    if agent is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found.",
+        )
+
+    snapshots = (
+        db.query(NetworkSnapshot)
+        .filter(
+            NetworkSnapshot.device_id == device_id,
+            NetworkSnapshot.organization_id == organization.id,
+        )
+        .order_by(
+            NetworkSnapshot.collected_at.desc(),
+        )
+        .limit(50)
+        .all()
+    )
+
+    return {
+        "device_id": device_id,
+        "snapshots": [
+            {
+                "id": snapshot.id,
+                "collected_at": snapshot.collected_at,
+                "interfaces": len(snapshot.interfaces),
+                "connections": len(snapshot.connections),
+                "listeners": len(snapshot.listeners),
+                "firewall_available": (
+                    snapshot.firewall_posture.available
+                    if snapshot.firewall_posture
+                    else False
+                ),
+                "firewall_domain_enabled": (
+                    snapshot.firewall_posture.domain_enabled
+                    if snapshot.firewall_posture
+                    else None
+                ),
+                "firewall_private_enabled": (
+                    snapshot.firewall_posture.private_enabled
+                    if snapshot.firewall_posture
+                    else None
+                ),
+                "firewall_public_enabled": (
+                    snapshot.firewall_posture.public_enabled
+                    if snapshot.firewall_posture
+                    else None
+                ),
+            }
+            for snapshot in snapshots
+        ],
     }
