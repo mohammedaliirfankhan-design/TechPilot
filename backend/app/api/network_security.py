@@ -13,7 +13,10 @@ from app.models.network_listener import NetworkListener
 from app.models.network_snapshot import NetworkSnapshot
 from app.models.user import User
 from app.security.agent_auth import get_current_agent
-from app.services.network_detection import detect_firewall_disabled
+from app.services.network_detection import (
+    detect_firewall_disabled,
+    detect_unexpected_listeners,
+)
 from app.services.organization import get_user_default_organization
 
 
@@ -97,6 +100,32 @@ def receive_network_telemetry(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="firewall must be an object.",
         )
+
+    previous_snapshot = (
+        db.query(NetworkSnapshot)
+        .filter(
+            NetworkSnapshot.device_id == current_agent.device_id,
+            NetworkSnapshot.organization_id == organization_id,
+        )
+        .order_by(
+            NetworkSnapshot.collected_at.desc(),
+        )
+        .first()
+    )
+
+    previous_listeners: list[dict] = []
+
+    if previous_snapshot is not None:
+        previous_listeners = [
+            {
+                "protocol": listener.protocol,
+                "bind_address": listener.bind_address,
+                "port": listener.port,
+                "pid": listener.pid,
+                "process_name": listener.process_name,
+            }
+            for listener in previous_snapshot.listeners
+        ]
 
     snapshot = NetworkSnapshot(
         device_id=current_agent.device_id,
@@ -215,11 +244,44 @@ def receive_network_telemetry(
         )
     )
 
-    # ---------------------------------------------------------
+        # ---------------------------------------------------------
     # N3.1 — Firewall Disabled Detection
     # ---------------------------------------------------------
 
     alerts = detect_firewall_disabled(firewall)
+
+    # ---------------------------------------------------------
+    # N3.2 — Unexpected Listener Detection
+    # ---------------------------------------------------------
+
+    current_listeners = [
+        {
+            "protocol": listener.get(
+                "protocol",
+                "UNKNOWN",
+            ),
+            "bind_address": listener.get(
+                "bind_address",
+                "",
+            ),
+            "port": listener.get(
+                "port",
+                0,
+            ),
+            "pid": listener.get("pid"),
+            "process_name": listener.get(
+                "process_name",
+            ),
+        }
+        for listener in listener_records
+    ]
+
+    listener_alerts = detect_unexpected_listeners(
+        current_listeners=current_listeners,
+        previous_listeners=previous_listeners,
+    )
+
+    alerts.extend(listener_alerts)
 
     for alert_data in alerts:
         db.add(

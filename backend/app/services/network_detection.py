@@ -8,16 +8,7 @@ def detect_firewall_disabled(
     Detect disabled Windows Firewall profiles.
 
     The detector consumes the firewall payload produced by the
-    network collector:
-
-        {
-            "available": True,
-            "profiles": {
-                "domain": {"enabled": True},
-                "private": {"enabled": False},
-                "public": {"enabled": True},
-            }
-        }
+    network collector.
 
     Returns alert definitions compatible with the existing Alert model.
     """
@@ -62,3 +53,133 @@ def detect_firewall_disabled(
             "threshold": 0.0,
         }
     ]
+
+
+def _is_loopback_address(bind_address: str | None) -> bool:
+    """
+    Return True when a listener is bound only to localhost.
+    """
+
+    if not bind_address:
+        return False
+
+    normalized = bind_address.strip().lower()
+
+    return normalized in {
+        "127.0.0.1",
+        "::1",
+        "localhost",
+    }
+
+
+def _listener_key(listener: dict[str, Any]) -> tuple:
+    """
+    Build a stable identity for a network listener.
+
+    Process name is included so a port changing ownership between
+    processes is treated as a meaningful listener change.
+    """
+
+    return (
+        str(listener.get("protocol") or "").upper(),
+        str(listener.get("bind_address") or "").lower(),
+        int(listener.get("port") or 0),
+        str(listener.get("process_name") or "").lower(),
+    )
+
+
+def detect_unexpected_listeners(
+    current_listeners: list[dict[str, Any]],
+    previous_listeners: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Detect newly observed externally bound TCP/UDP listeners.
+
+    The first snapshot establishes the baseline and produces no alerts.
+
+    Loopback listeners are ignored because they are not externally
+    reachable through the network interface.
+
+    A listener is considered new when its protocol, bind address,
+    port, or process identity was not present in the previous snapshot.
+
+    Returns alert definitions compatible with the existing Alert model.
+    """
+
+    if not isinstance(current_listeners, list):
+        return []
+
+    if not isinstance(previous_listeners, list):
+        previous_listeners = []
+
+    # No previous snapshot means there is no baseline yet.
+    if not previous_listeners:
+        return []
+
+    previous_keys = {
+        _listener_key(listener)
+        for listener in previous_listeners
+        if isinstance(listener, dict)
+    }
+
+    new_listeners: list[dict[str, Any]] = []
+
+    for listener in current_listeners:
+        if not isinstance(listener, dict):
+            continue
+
+        bind_address = listener.get("bind_address")
+
+        if _is_loopback_address(bind_address):
+            continue
+
+        key = _listener_key(listener)
+
+        if key in previous_keys:
+            continue
+
+        new_listeners.append(listener)
+
+    if not new_listeners:
+        return []
+
+    alert_definitions: list[dict[str, Any]] = []
+
+    for listener in new_listeners:
+        protocol = str(
+            listener.get("protocol") or "UNKNOWN"
+        ).upper()
+
+        bind_address = str(
+            listener.get("bind_address") or "UNKNOWN"
+        )
+
+        port = int(listener.get("port") or 0)
+
+        process_name = listener.get("process_name")
+
+        if process_name:
+            description = (
+                f"{protocol} listener {bind_address}:{port} "
+                f"opened by {process_name}"
+            )
+        else:
+            description = (
+                f"{protocol} listener {bind_address}:{port} "
+                f"opened by an unknown process"
+            )
+
+        alert_definitions.append(
+            {
+                "alert_type": "NETWORK_UNEXPECTED_LISTENER",
+                "severity": "HIGH",
+                "message": (
+                    f"Unexpected network listener detected: "
+                    f"{description}"
+                ),
+                "metric_value": float(port),
+                "threshold": 0.0,
+            }
+        )
+
+    return alert_definitions
