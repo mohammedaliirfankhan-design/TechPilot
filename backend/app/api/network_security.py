@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
 from app.database import get_db
 from app.models.agent import Agent
+from app.models.alert import Alert
 from app.models.firewall_posture import FirewallPosture
 from app.models.network_connection import NetworkConnection
 from app.models.network_interface import NetworkInterface
@@ -12,6 +13,7 @@ from app.models.network_listener import NetworkListener
 from app.models.network_snapshot import NetworkSnapshot
 from app.models.user import User
 from app.security.agent_auth import get_current_agent
+from app.services.network_detection import detect_firewall_disabled
 from app.services.organization import get_user_default_organization
 
 
@@ -213,6 +215,24 @@ def receive_network_telemetry(
         )
     )
 
+    # ---------------------------------------------------------
+    # N3.1 — Firewall Disabled Detection
+    # ---------------------------------------------------------
+
+    alerts = detect_firewall_disabled(firewall)
+
+    for alert_data in alerts:
+        db.add(
+            Alert(
+                device_id=current_agent.device_id,
+                alert_type=alert_data["alert_type"],
+                severity=alert_data["severity"],
+                message=alert_data["message"],
+                metric_value=alert_data["metric_value"],
+                threshold=alert_data["threshold"],
+            )
+        )
+
     try:
         db.commit()
     except Exception:
@@ -230,6 +250,7 @@ def receive_network_telemetry(
         "connections_stored": len(connections),
         "listeners_stored": len(listener_records),
         "firewall_stored": True,
+        "alerts_generated": len(alerts),
     }
 
 
