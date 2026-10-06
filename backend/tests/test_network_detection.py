@@ -1,5 +1,6 @@
 from app.services.network_detection import (
     detect_firewall_disabled,
+    detect_rdp_exposure,
     detect_unexpected_listeners,
 )
 
@@ -243,3 +244,104 @@ def test_udp_listener_is_supported():
     assert alerts[0]["alert_type"] == "NETWORK_UNEXPECTED_LISTENER"
     assert alerts[0]["severity"] == "HIGH"
     assert alerts[0]["metric_value"] == 9999.0
+
+def test_rdp_exposure_on_external_bind_generates_high_alert():
+    listeners = [
+        {
+            "protocol": "TCP",
+            "bind_address": "0.0.0.0",
+            "port": 3389,
+            "pid": 1234,
+            "process_name": "TermService",
+        }
+    ]
+
+    alerts = detect_rdp_exposure(listeners)
+
+    assert len(alerts) == 1
+    assert alerts[0]["alert_type"] == "NETWORK_RDP_EXPOSURE"
+    assert alerts[0]["severity"] == "HIGH"
+    assert alerts[0]["metric_value"] == 3389.0
+    assert "3389" in alerts[0]["message"]
+    assert "TermService" in alerts[0]["message"]
+
+
+def test_rdp_exposure_on_specific_network_interface_generates_alert():
+    listeners = [
+        {
+            "protocol": "TCP",
+            "bind_address": "192.168.0.25",
+            "port": 3389,
+            "pid": 1234,
+            "process_name": "TermService",
+        }
+    ]
+
+    alerts = detect_rdp_exposure(listeners)
+
+    assert len(alerts) == 1
+    assert alerts[0]["alert_type"] == "NETWORK_RDP_EXPOSURE"
+    assert alerts[0]["severity"] == "HIGH"
+    assert "192.168.0.25:3389" in alerts[0]["message"]
+
+
+def test_loopback_rdp_listener_is_ignored():
+    listeners = [
+        {
+            "protocol": "TCP",
+            "bind_address": "127.0.0.1",
+            "port": 3389,
+            "pid": 1234,
+            "process_name": "TermService",
+        },
+        {
+            "protocol": "TCP",
+            "bind_address": "::1",
+            "port": 3389,
+            "pid": 1234,
+            "process_name": "TermService",
+        },
+    ]
+
+    alerts = detect_rdp_exposure(listeners)
+
+    assert alerts == []
+
+
+def test_non_rdp_listener_does_not_trigger_rdp_alert():
+    listeners = [
+        {
+            "protocol": "TCP",
+            "bind_address": "0.0.0.0",
+            "port": 3390,
+            "pid": 1234,
+            "process_name": "someprocess.exe",
+        },
+        {
+            "protocol": "TCP",
+            "bind_address": "0.0.0.0",
+            "port": 3388,
+            "pid": 1235,
+            "process_name": "someprocess.exe",
+        },
+    ]
+
+    alerts = detect_rdp_exposure(listeners)
+
+    assert alerts == []
+
+
+def test_udp_3389_does_not_trigger_rdp_alert():
+    listeners = [
+        {
+            "protocol": "UDP",
+            "bind_address": "0.0.0.0",
+            "port": 3389,
+            "pid": 1234,
+            "process_name": "someprocess.exe",
+        }
+    ]
+
+    alerts = detect_rdp_exposure(listeners)
+
+    assert alerts == []

@@ -15,6 +15,7 @@ from app.models.user import User
 from app.security.agent_auth import get_current_agent
 from app.services.network_detection import (
     detect_firewall_disabled,
+    detect_rdp_exposure,
     detect_unexpected_listeners,
 )
 from app.services.organization import get_user_default_organization
@@ -282,6 +283,16 @@ def receive_network_telemetry(
     )
 
     alerts.extend(listener_alerts)
+
+    # ---------------------------------------------------------
+    # N3.3 — RDP Exposure Detection
+    # ---------------------------------------------------------
+
+    rdp_alerts = detect_rdp_exposure(
+        current_listeners,
+    )
+
+    alerts.extend(rdp_alerts)
 
     for alert_data in alerts:
         db.add(

@@ -183,3 +183,72 @@ def detect_unexpected_listeners(
         )
 
     return alert_definitions
+
+def detect_rdp_exposure(
+    listeners: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Detect externally reachable Windows RDP listeners.
+
+    RDP uses TCP port 3389.
+
+    Loopback-only listeners are ignored because they are not
+    externally reachable through the network.
+
+    Returns alert definitions compatible with the existing Alert model.
+    """
+
+    if not isinstance(listeners, list):
+        return []
+
+    alerts: list[dict[str, Any]] = []
+
+    for listener in listeners:
+        if not isinstance(listener, dict):
+            continue
+
+        protocol = str(
+            listener.get("protocol") or ""
+        ).upper()
+
+        if protocol != "TCP":
+            continue
+
+        port = int(listener.get("port") or 0)
+
+        if port != 3389:
+            continue
+
+        bind_address = str(
+            listener.get("bind_address") or ""
+        ).strip()
+
+        if _is_loopback_address(bind_address):
+            continue
+
+        process_name = listener.get("process_name")
+
+        if process_name:
+            message = (
+                f"RDP exposure detected: "
+                f"TCP {bind_address}:3389 "
+                f"opened by {process_name}"
+            )
+        else:
+            message = (
+                f"RDP exposure detected: "
+                f"TCP {bind_address}:3389 "
+                f"opened by an unknown process"
+            )
+
+        alerts.append(
+            {
+                "alert_type": "NETWORK_RDP_EXPOSURE",
+                "severity": "HIGH",
+                "message": message,
+                "metric_value": 3389.0,
+                "threshold": 0.0,
+            }
+        )
+
+    return alerts
