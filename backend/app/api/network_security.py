@@ -15,7 +15,15 @@ from app.models.user import User
 from app.security.agent_auth import get_current_agent
 from app.services.network_detection import (
     detect_firewall_disabled,
+    detect_port_scan,
     detect_rdp_exposure,
+    detect_unexpected_listeners,
+)
+from app.services.network_detection import (
+    detect_firewall_disabled,
+    detect_port_scan,
+    detect_rdp_exposure,
+    detect_suspicious_outbound,
     detect_unexpected_listeners,
 )
 from app.services.organization import get_user_default_organization
@@ -293,6 +301,25 @@ def receive_network_telemetry(
     )
 
     alerts.extend(rdp_alerts)
+    # ---------------------------------------------------------
+    # N3.4 — Port Scan Detection
+    # ---------------------------------------------------------
+
+    port_scan_alerts = detect_port_scan(
+        connections,
+    )
+
+    alerts.extend(port_scan_alerts)
+
+    # ---------------------------------------------------------
+    # N3.5 — Suspicious Outbound Connection Detection
+    # ---------------------------------------------------------
+
+    suspicious_outbound_alerts = detect_suspicious_outbound(
+        connections,
+    )
+
+    alerts.extend(suspicious_outbound_alerts)
 
     for alert_data in alerts:
         db.add(
@@ -325,6 +352,7 @@ def receive_network_telemetry(
         "firewall_stored": True,
         "alerts_generated": len(alerts),
     }
+
 
 
 # =========================================================
