@@ -5,10 +5,16 @@ import {
   type Agent,
 } from "../api";
 
+import { formatDateTime } from "../lib/agentVersion";
+
+import "../pages.css";
+
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL ||
   "http://localhost:8000"
 ).replace(/\/+$/, "");
+
+/* ================= TYPES ================= */
 
 type NetworkOverview = {
   organization_id: number;
@@ -22,25 +28,6 @@ type NetworkOverview = {
     id: number;
     device_id: string;
     collected_at: string;
-  } | null;
-};
-
-type NetworkDeviceDetails = {
-  device: {
-    device_id: string;
-    hostname: string;
-    operating_system: string;
-    os_version: string;
-    agent_version: string;
-    last_seen: string;
-  };
-  snapshot: {
-    id: number;
-    collected_at: string;
-    interfaces: NetworkInterface[];
-    connections: NetworkConnection[];
-    listeners: NetworkListener[];
-    firewall_posture: FirewallPosture | null;
   } | null;
 };
 
@@ -82,6 +69,25 @@ type FirewallPosture = {
   error: string | null;
 };
 
+type NetworkDeviceDetails = {
+  device: {
+    device_id: string;
+    hostname: string;
+    operating_system: string;
+    os_version: string;
+    agent_version: string;
+    last_seen: string;
+  };
+  snapshot: {
+    id: number;
+    collected_at: string;
+    interfaces: NetworkInterface[];
+    connections: NetworkConnection[];
+    listeners: NetworkListener[];
+    firewall_posture: FirewallPosture | null;
+  } | null;
+};
+
 type NetworkSnapshotHistoryItem = {
   id: number;
   collected_at: string;
@@ -103,1013 +109,19 @@ type NetworkSecurityProps = {
   token: string;
 };
 
-function NetworkSecurity({
-  token,
-}: NetworkSecurityProps) {
+type TabKey = "interfaces" | "connections" | "listeners" | "history";
 
-const loadDevices = async () => {
-  setDevicesLoading(true);
-
-  try {
-    const data = await getAgents(token);
-
-    setDevices(data);
-
-    if (
-      data.length > 0 &&
-      !selectedDeviceId
-    ) {
-      setSelectedDeviceId(data[0].device_id);
-    }
-  } catch (requestError) {
-    setDeviceError(
-      requestError instanceof Error
-        ? requestError.message
-        : "Unable to load devices.",
-    );
-  } finally {
-    setDevicesLoading(false);
-  }
+type Finding = {
+  severity: "high" | "medium";
+  title: string;
+  detail: string;
 };
 
-const loadDeviceNetwork = async (
-  deviceId: string,
-) => {
-  setDeviceLoading(true);
-  setDeviceError(null);
+const RDP_PORT = 3389;
 
-  try {
-    const [detailsResponse, historyResponse] =
-      await Promise.all([
-        fetch(
-          `${API_BASE_URL}/api/v1/security/network/devices/${encodeURIComponent(
-            deviceId,
-          )}`,
-          {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          },
-        ),
-        fetch(
-          `${API_BASE_URL}/api/v1/security/network/devices/${encodeURIComponent(
-            deviceId,
-          )}/snapshots`,
-          {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          },
-        ),
-      ]);
+/* ================= HELPERS ================= */
 
-    if (!detailsResponse.ok) {
-      throw new Error(
-        `Failed to load device network data: ${detailsResponse.status}`,
-      );
-    }
-
-    if (!historyResponse.ok) {
-      throw new Error(
-        `Failed to load snapshot history: ${historyResponse.status}`,
-      );
-    }
-
-    const details =
-      (await detailsResponse.json()) as NetworkDeviceDetails;
-
-    const history =
-      (await historyResponse.json()) as NetworkSnapshotHistory;
-
-    setDeviceDetails(details);
-    setSnapshotHistory(history);
-  } catch (requestError) {
-    setDeviceDetails(null);
-    setSnapshotHistory(null);
-
-    setDeviceError(
-      requestError instanceof Error
-        ? requestError.message
-        : "Unable to load device network data.",
-    );
-  } finally {
-    setDeviceLoading(false);
-  }
-};
-
-const [overview, setOverview] =
-  useState<NetworkOverview | null>(null);
-
-const [loading, setLoading] =
-  useState(true);
-
-const [error, setError] =
-  useState<string | null>(null);
-
-const [devices, setDevices] =
-  useState<Agent[]>([]);
-
-const [devicesLoading, setDevicesLoading] =
-  useState(true);
-
-const [selectedDeviceId, setSelectedDeviceId] =
-  useState<string | null>(null);
-
-const [deviceDetails, setDeviceDetails] =
-  useState<NetworkDeviceDetails | null>(null);
-
-const [snapshotHistory, setSnapshotHistory] =
-  useState<NetworkSnapshotHistory | null>(null);
-
-const [deviceLoading, setDeviceLoading] =
-  useState(false);
-
-const [deviceError, setDeviceError] =
-  useState<string | null>(null);
-
-  const loadOverview = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/security/network/overview`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-
-      if (!response.ok) {
-        let message =
-          `Failed to load network overview: ${response.status}`;
-
-        try {
-          const body = await response.json();
-
-          if (
-            body &&
-            typeof body.detail === "string"
-          ) {
-            message = body.detail;
-          }
-        } catch {
-          // Keep default error message.
-        }
-
-        throw new Error(message);
-      }
-
-      const data =
-        (await response.json()) as NetworkOverview;
-
-      setOverview(data);
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to load network security data.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-  void loadOverview();
-  void loadDevices();
-  }, [token]);
-
-useEffect(() => {
-  if (!selectedDeviceId) {
-    return;
-  }
-
-  void loadDeviceNetwork(
-    selectedDeviceId,
-  );
-  }, [selectedDeviceId, token]);
-
-  const formatTimestamp = (
-    value: string | null | undefined,
-  ) => {
-    if (!value) {
-      return "No telemetry yet";
-    }
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-      return value;
-    }
-
-    return new Intl.DateTimeFormat(
-      "en-IN",
-      {
-        dateStyle: "medium",
-        timeStyle: "short",
-      },
-    ).format(date);
-  };
-
-  return (
-    <section className="network-security-page">
-      <div className="network-security-toolbar">
-        <div>
-          <span className="eyebrow">
-            <span className="eyebrow-dot" />
-            NETWORK SECURITY
-          </span>
-
-          <h2>
-            Network visibility
-            <span> &amp; posture</span>
-          </h2>
-
-          <p>
-            Monitor endpoint network telemetry,
-            exposure signals, and firewall posture
-            across your organization.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={() => {
-            void loadOverview();
-          }}
-          disabled={loading}
-        >
-          {loading
-            ? "REFRESHING..."
-            : "REFRESH TELEMETRY"}
-        </button>
-      </div>
-
-      {error && (
-        <div className="glass-card network-security-error">
-          <strong>
-            Unable to load network security data
-          </strong>
-
-          <span>{error}</span>
-        </div>
-      )}
-
-      {loading && !overview && (
-        <div className="glass-card network-security-loading">
-          <div className="empty-icon">
-            ◌
-          </div>
-
-          <strong>
-            Loading network telemetry...
-          </strong>
-
-          <p>
-            Fetching the latest organization-level
-            network security data.
-          </p>
-        </div>
-      )}
-
-      {overview && (
-        <>
-          <div className="network-security-metrics">
-            <NetworkMetric
-              label="Total Devices"
-              value={overview.total_devices}
-              detail={`${overview.reporting_devices} reporting`}
-              tone="blue"
-            />
-
-            <NetworkMetric
-              label="Interfaces"
-              value={overview.total_interfaces}
-              detail="Across reporting endpoints"
-              tone="cyan"
-            />
-
-            <NetworkMetric
-              label="Connections"
-              value={overview.total_connections}
-              detail="Observed network connections"
-              tone="purple"
-            />
-
-            <NetworkMetric
-              label="Listeners"
-              value={overview.total_listeners}
-              detail="TCP / UDP listeners"
-              tone="green"
-            />
-
-            <NetworkMetric
-              label="Firewall Issues"
-              value={
-                overview.firewall_disabled_snapshots
-              }
-              detail="Snapshots with disabled profile"
-              tone={
-                overview.firewall_disabled_snapshots > 0
-                  ? "red"
-                  : "green"
-              }
-            />
-          </div>
-
-<section className="glass-card network-security-panel network-device-selector">
-  <div className="network-security-panel-header">
-    <div>
-      <span className="eyebrow">
-        ENDPOINT NETWORK VISIBILITY
-      </span>
-
-      <h3>
-        Select an endpoint
-      </h3>
-    </div>
-
-    <span className="network-roadmap-status">
-      {devices.length} DEVICES
-    </span>
-  </div>
-
-  {devicesLoading ? (
-    <div className="network-empty-state">
-      Loading endpoints...
-    </div>
-  ) : devices.length === 0 ? (
-    <div className="network-empty-state">
-      No endpoints are registered.
-    </div>
-  ) : (
-    <div className="network-device-list">
-      {devices.map((device) => (
-        <button
-          key={device.device_id}
-          type="button"
-          className={`network-device-item ${
-            selectedDeviceId === device.device_id
-              ? "selected"
-              : ""
-          }`}
-          onClick={() =>
-            setSelectedDeviceId(
-              device.device_id,
-            )
-          }
-        >
-          <span className="network-device-icon">
-            {device.operating_system
-              .toLowerCase()
-              .includes("windows")
-              ? "WIN"
-              : "DEV"}
-          </span>
-
-          <span className="network-device-copy">
-            <strong>
-              {device.hostname}
-            </strong>
-
-            <small>
-              {device.device_id}
-            </small>
-          </span>
-
-          <span className="network-device-arrow">
-            →
-          </span>
-        </button>
-      ))}
-    </div>
-  )}
-</section>
-
-<section className="network-device-workspace">
-  {deviceError && (
-    <div className="glass-card network-security-error">
-      <strong>
-        Unable to load endpoint network data
-      </strong>
-
-      <span>
-        {deviceError}
-      </span>
-    </div>
-  )}
-
-  {deviceLoading ? (
-    <div className="glass-card network-security-loading">
-      <div className="empty-icon">
-        ◌
-      </div>
-
-      <strong>
-        Loading endpoint network telemetry...
-      </strong>
-
-      <p>
-        Fetching interfaces, connections,
-        listeners, firewall posture, and
-        snapshot history.
-      </p>
-    </div>
-  ) : deviceDetails ? (
-    <>
-      <section className="glass-card network-security-panel network-device-summary">
-        <div className="network-security-panel-header">
-          <div>
-            <span className="eyebrow">
-              SELECTED ENDPOINT
-            </span>
-
-            <h3>
-              {deviceDetails.device.hostname}
-            </h3>
-          </div>
-
-          <span className="network-roadmap-status">
-            {deviceDetails.device.device_id}
-          </span>
-        </div>
-
-        <div className="network-device-meta">
-          <div>
-            <span>OPERATING SYSTEM</span>
-            <strong>
-              {deviceDetails.device.operating_system}
-              {" "}
-              {deviceDetails.device.os_version}
-            </strong>
-          </div>
-
-          <div>
-            <span>AGENT VERSION</span>
-            <strong>
-              v{deviceDetails.device.agent_version}
-            </strong>
-          </div>
-
-          <div>
-            <span>LAST SEEN</span>
-            <strong>
-              {formatTimestamp(
-                deviceDetails.device.last_seen,
-              )}
-            </strong>
-          </div>
-
-          <div>
-            <span>LATEST SNAPSHOT</span>
-            <strong>
-              {deviceDetails.snapshot
-                ? `#${deviceDetails.snapshot.id}`
-                : "No telemetry"}
-            </strong>
-          </div>
-        </div>
-      </section>
-
-      {!deviceDetails.snapshot ? (
-        <section className="glass-card network-empty-state network-no-telemetry">
-          <strong>
-            No network telemetry available
-          </strong>
-
-          <p>
-            This endpoint is registered but has
-            not submitted a network security
-            snapshot yet.
-          </p>
-        </section>
-      ) : (
-        <>
-          {/* Network Interfaces */}
-          <section className="glass-card network-security-panel">
-            <div className="network-security-panel-header">
-              <div>
-                <span className="eyebrow">
-                  NETWORK INTERFACES
-                </span>
-
-                <h3>
-                  Interfaces
-                </h3>
-              </div>
-
-              <span className="network-roadmap-status">
-                {deviceDetails.snapshot.interfaces.length}
-              </span>
-            </div>
-
-            <div className="network-table-wrap">
-              <table className="network-security-table">
-                <thead>
-                  <tr>
-                    <th>INTERFACE</th>
-                    <th>STATUS</th>
-                    <th>MAC</th>
-                    <th>SPEED</th>
-                    <th>ADDRESSES</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {deviceDetails.snapshot.interfaces.map(
-                    (networkInterface) => (
-                      <tr
-                        key={
-                          networkInterface.id
-                        }
-                      >
-                        <td>
-                          <strong>
-                            {
-                              networkInterface.interface_name
-                            }
-                          </strong>
-                        </td>
-
-                        <td>
-                          <span
-                            className={
-                              networkInterface.is_up
-                                ? "network-state healthy"
-                                : "network-state warning"
-                            }
-                          >
-                            {networkInterface.is_up
-                              ? "UP"
-                              : "DOWN"}
-                          </span>
-                        </td>
-
-                        <td>
-                          {networkInterface.mac_address ||
-                            "—"}
-                        </td>
-
-                        <td>
-                          {networkInterface.speed_mbps !=
-                          null
-                            ? `${networkInterface.speed_mbps} Mbps`
-                            : "—"}
-                        </td>
-
-                        <td>
-                          {formatAddresses(
-                            networkInterface.addresses,
-                          )}
-                        </td>
-                      </tr>
-                    ),
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {/* Active Connections */}
-          <section className="glass-card network-security-panel">
-            <div className="network-security-panel-header">
-              <div>
-                <span className="eyebrow">
-                  ACTIVE CONNECTIONS
-                </span>
-
-                <h3>
-                  Network connections
-                </h3>
-              </div>
-
-              <span className="network-roadmap-status">
-                {deviceDetails.snapshot.connections.length}
-              </span>
-            </div>
-
-            <div className="network-table-wrap network-table-tall">
-              <table className="network-security-table">
-                <thead>
-                  <tr>
-                    <th>PROTOCOL</th>
-                    <th>LOCAL</th>
-                    <th>REMOTE</th>
-                    <th>STATUS</th>
-                    <th>PROCESS</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {deviceDetails.snapshot.connections.map(
-                    (connection) => (
-                      <tr
-                        key={connection.id}
-                      >
-                        <td>
-                          {connection.protocol}
-                        </td>
-
-                        <td>
-                          {formatEndpoint(
-                            connection.local_address,
-                            connection.local_port,
-                          )}
-                        </td>
-
-                        <td>
-                          {formatEndpoint(
-                            connection.remote_address,
-                            connection.remote_port,
-                          )}
-                        </td>
-
-                        <td>
-                          {connection.status || "—"}
-                        </td>
-
-                        <td>
-                          {connection.process_name ||
-                            connection.pid ||
-                            "—"}
-                        </td>
-                      </tr>
-                    ),
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {/* Listeners + Firewall */}
-          <div className="network-security-grid">
-            <section className="glass-card network-security-panel">
-              <div className="network-security-panel-header">
-                <div>
-                  <span className="eyebrow">
-                    LISTENERS
-                  </span>
-
-                  <h3>
-                    TCP / UDP listeners
-                  </h3>
-                </div>
-
-                <span className="network-roadmap-status">
-                  {deviceDetails.snapshot.listeners.length}
-                </span>
-              </div>
-
-              <div className="network-table-wrap network-table-tall">
-                <table className="network-security-table">
-                  <thead>
-                    <tr>
-                      <th>PROTOCOL</th>
-                      <th>BIND</th>
-                      <th>PORT</th>
-                      <th>PROCESS</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {deviceDetails.snapshot.listeners.map(
-                      (listener) => (
-                        <tr
-                          key={listener.id}
-                        >
-                          <td>
-                            {listener.protocol}
-                          </td>
-
-                          <td>
-                            {listener.bind_address ||
-                              "—"}
-                          </td>
-
-                          <td>
-                            <strong>
-                              {listener.port}
-                            </strong>
-                          </td>
-
-                          <td>
-                            {listener.process_name ||
-                              listener.pid ||
-                              "—"}
-                          </td>
-                        </tr>
-                      ),
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <section className="glass-card network-security-panel">
-              <div className="network-security-panel-header">
-                <div>
-                  <span className="eyebrow">
-                    FIREWALL POSTURE
-                  </span>
-
-                  <h3>
-                    Firewall profiles
-                  </h3>
-                </div>
-              </div>
-
-              <FirewallProfile
-                label="DOMAIN"
-                enabled={
-                  deviceDetails.snapshot
-                    .firewall_posture
-                    ?.domain_enabled
-                }
-              />
-
-              <FirewallProfile
-                label="PRIVATE"
-                enabled={
-                  deviceDetails.snapshot
-                    .firewall_posture
-                    ?.private_enabled
-                }
-              />
-
-              <FirewallProfile
-                label="PUBLIC"
-                enabled={
-                  deviceDetails.snapshot
-                    .firewall_posture
-                    ?.public_enabled
-                }
-              />
-
-              {deviceDetails.snapshot
-                .firewall_posture?.error && (
-                <div className="network-firewall-error">
-                  {
-                    deviceDetails.snapshot
-                      .firewall_posture.error
-                  }
-                </div>
-              )}
-            </section>
-          </div>
-
-          {/* Snapshot History */}
-          <section className="glass-card network-security-panel">
-            <div className="network-security-panel-header">
-              <div>
-                <span className="eyebrow">
-                  TELEMETRY HISTORY
-                </span>
-
-                <h3>
-                  Snapshot history
-                </h3>
-              </div>
-
-              <span className="network-roadmap-status">
-                {snapshotHistory?.snapshots.length || 0}
-              </span>
-            </div>
-
-            <div className="network-table-wrap">
-              <table className="network-security-table">
-                <thead>
-                  <tr>
-                    <th>SNAPSHOT</th>
-                    <th>COLLECTED</th>
-                    <th>INTERFACES</th>
-                    <th>CONNECTIONS</th>
-                    <th>LISTENERS</th>
-                    <th>FIREWALL</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {snapshotHistory?.snapshots.map(
-                    (snapshot) => {
-                      const firewallHealthy =
-                        snapshot.firewall_available &&
-                        snapshot.firewall_domain_enabled !==
-                          false &&
-                        snapshot.firewall_private_enabled !==
-                          false &&
-                        snapshot.firewall_public_enabled !==
-                          false;
-
-                      return (
-                        <tr
-                          key={snapshot.id}
-                        >
-                          <td>
-                            <strong>
-                              #{snapshot.id}
-                            </strong>
-                          </td>
-
-                          <td>
-                            {formatTimestamp(
-                              snapshot.collected_at,
-                            )}
-                          </td>
-
-                          <td>
-                            {snapshot.interfaces}
-                          </td>
-
-                          <td>
-                            {snapshot.connections}
-                          </td>
-
-                          <td>
-                            {snapshot.listeners}
-                          </td>
-
-                          <td>
-                            <span
-                              className={`network-state ${
-                                firewallHealthy
-                                  ? "healthy"
-                                  : "warning"
-                              }`}
-                            >
-                              {firewallHealthy
-                                ? "PROTECTED"
-                                : "ATTENTION"}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    },
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      )}
-    </>
-  ) : null}
-</section>
-
-          <div className="network-security-grid">
-            <section className="glass-card network-security-panel">
-              <div className="network-security-panel-header">
-                <div>
-                  <span className="eyebrow">
-                    SECURITY POSTURE
-                  </span>
-
-                  <h3>
-                    Firewall status
-                  </h3>
-                </div>
-
-                <span
-                  className={`network-status-badge ${
-                    overview.firewall_disabled_snapshots > 0
-                      ? "warning"
-                      : "healthy"
-                  }`}
-                >
-                  <i />
-
-                  {overview.firewall_disabled_snapshots > 0
-                    ? "ATTENTION REQUIRED"
-                    : "PROTECTED"}
-                </span>
-              </div>
-
-              <div className="network-firewall-summary">
-                <div className="network-firewall-icon">
-                  {overview.firewall_disabled_snapshots > 0
-                    ? "!"
-                    : "✓"}
-                </div>
-
-                <div>
-                  <strong>
-                    {overview.firewall_disabled_snapshots > 0
-                      ? "Firewall posture requires review"
-                      : "No disabled firewall snapshots detected"}
-                  </strong>
-
-                  <span>
-                    {overview.firewall_disabled_snapshots > 0
-                      ? "One or more telemetry snapshots reported a disabled firewall profile."
-                      : "All currently observed firewall profiles are enabled."}
-                  </span>
-                </div>
-              </div>
-            </section>
-
-            <section className="glass-card network-security-panel">
-              <div className="network-security-panel-header">
-                <div>
-                  <span className="eyebrow">
-                    TELEMETRY
-                  </span>
-
-                  <h3>
-                    Latest snapshot
-                  </h3>
-                </div>
-              </div>
-
-              {overview.latest_snapshot ? (
-                <div className="network-latest-snapshot">
-                  <div>
-                    <span>DEVICE</span>
-
-                    <strong>
-                      {overview.latest_snapshot.device_id}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>SNAPSHOT</span>
-
-                    <strong>
-                      #{overview.latest_snapshot.id}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>COLLECTED</span>
-
-                    <strong>
-                      {formatTimestamp(
-                        overview.latest_snapshot
-                          .collected_at,
-                      )}
-                    </strong>
-                  </div>
-                </div>
-              ) : (
-                <div className="network-empty-state">
-                  No network telemetry has been
-                  received yet.
-                </div>
-              )}
-            </section>
-          </div>
-
-          <section className="glass-card network-security-panel network-security-coming-next">
-            <div className="network-security-panel-header">
-              <div>
-                <span className="eyebrow">
-                  NETWORK SECURITY ROADMAP
-                </span>
-
-                <h3>
-                  Visibility foundation is online
-                </h3>
-              </div>
-
-              <span className="network-roadmap-status">
-                N2.2
-              </span>
-            </div>
-
-            <div className="network-roadmap-grid">
-              <RoadmapItem
-                title="Endpoint telemetry"
-                description="Interfaces, connections, listeners, and firewall posture."
-                status="ONLINE"
-              />
-
-              <RoadmapItem
-                title="Network detections"
-                description="Firewall, listener, RDP exposure, scanning, and outbound detections."
-                status="NEXT"
-              />
-
-              <RoadmapItem
-                title="Network assessment"
-                description="Authorized discovery and exposure assessment workflows."
-                status="PLANNED"
-              />
-            </div>
-          </section>
-        </>
-      )}
-    </section>
-  );
-}
-
-function formatEndpoint(
-  address: string | null,
-  port: number | null,
-) {
+function formatEndpoint(address: string | null, port: number | null) {
   if (!address && port == null) {
     return "—";
   }
@@ -1121,9 +133,7 @@ function formatEndpoint(
   return `${address || "*"}:${port}`;
 }
 
-function formatAddresses(
-  addresses: unknown,
-) {
+function formatAddresses(addresses: unknown) {
   if (!addresses) {
     return "—";
   }
@@ -1131,20 +141,10 @@ function formatAddresses(
   if (Array.isArray(addresses)) {
     return addresses
       .map((address) => {
-        if (
-          address &&
-          typeof address === "object"
-        ) {
-          const value =
-            address as Record<
-              string,
-              unknown
-            >;
+        if (address && typeof address === "object") {
+          const value = address as Record<string, unknown>;
 
-          if (
-            typeof value.address ===
-            "string"
-          ) {
+          if (typeof value.address === "string") {
             return value.address;
           }
         }
@@ -1157,6 +157,585 @@ function formatAddresses(
   return String(addresses);
 }
 
+function formatTimestamp(value: string | null | undefined) {
+  return value ? formatDateTime(value) : "No telemetry yet";
+}
+
+// Findings derived from the latest snapshot (read-only observations).
+function deriveFindings(details: NetworkDeviceDetails): Finding[] {
+  const findings: Finding[] = [];
+  const snapshot = details.snapshot;
+
+  if (!snapshot) {
+    return findings;
+  }
+
+  const posture = snapshot.firewall_posture;
+  const profiles: Array<[string, boolean | null | undefined]> = [
+    ["Domain", posture?.domain_enabled],
+    ["Private", posture?.private_enabled],
+    ["Public", posture?.public_enabled],
+  ];
+
+  for (const [name, enabled] of profiles) {
+    if (enabled === false) {
+      findings.push({
+        severity: "high",
+        title: `Firewall off on ${name} profile`,
+        detail: `Windows Firewall reported the ${name} profile as disabled.`,
+      });
+    }
+  }
+
+  const rdp = snapshot.listeners.find((listener) => listener.port === RDP_PORT);
+
+  if (rdp) {
+    findings.push({
+      severity: "medium",
+      title: `RDP listening on port ${RDP_PORT}`,
+      detail: `Bound to ${rdp.bind_address || "*"}${
+        rdp.process_name ? ` by ${rdp.process_name}` : ""
+      }. Make sure it is not reachable from untrusted networks.`,
+    });
+  }
+
+  return findings;
+}
+
+/* ================= PAGE ================= */
+
+function NetworkSecurity({ token }: NetworkSecurityProps) {
+  const [overview, setOverview] = useState<NetworkOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [devices, setDevices] = useState<Agent[]>([]);
+  const [devicesLoading, setDevicesLoading] = useState(true);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+
+  const [deviceDetails, setDeviceDetails] =
+    useState<NetworkDeviceDetails | null>(null);
+  const [snapshotHistory, setSnapshotHistory] =
+    useState<NetworkSnapshotHistory | null>(null);
+  const [deviceLoading, setDeviceLoading] = useState(false);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
+
+  const [tab, setTab] = useState<TabKey>("interfaces");
+
+  const loadOverview = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/security/network/overview`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      if (!response.ok) {
+        let message = `Failed to load network overview: ${response.status}`;
+
+        try {
+          const body = await response.json();
+
+          if (body && typeof body.detail === "string") {
+            message = body.detail;
+          }
+        } catch {
+          // Keep default error message.
+        }
+
+        throw new Error(message);
+      }
+
+      setOverview((await response.json()) as NetworkOverview);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load network security data.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadDevices = async () => {
+    setDevicesLoading(true);
+
+    try {
+      const data = await getAgents(token);
+
+      setDevices(data);
+
+      if (data.length > 0) {
+        setSelectedDeviceId((current) => current ?? data[0].device_id);
+      }
+    } catch (requestError) {
+      setDeviceError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load devices.",
+      );
+    } finally {
+      setDevicesLoading(false);
+    }
+  };
+
+  const loadDeviceNetwork = async (deviceId: string) => {
+    setDeviceLoading(true);
+    setDeviceError(null);
+
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const base = `${API_BASE_URL}/api/v1/security/network/devices/${encodeURIComponent(
+        deviceId,
+      )}`;
+
+      const [detailsResponse, historyResponse] = await Promise.all([
+        fetch(base, { method: "GET", headers }),
+        fetch(`${base}/snapshots`, { method: "GET", headers }),
+      ]);
+
+      if (!detailsResponse.ok) {
+        throw new Error(
+          `Failed to load device network data: ${detailsResponse.status}`,
+        );
+      }
+
+      if (!historyResponse.ok) {
+        throw new Error(
+          `Failed to load snapshot history: ${historyResponse.status}`,
+        );
+      }
+
+      setDeviceDetails((await detailsResponse.json()) as NetworkDeviceDetails);
+      setSnapshotHistory(
+        (await historyResponse.json()) as NetworkSnapshotHistory,
+      );
+    } catch (requestError) {
+      setDeviceDetails(null);
+      setSnapshotHistory(null);
+
+      setDeviceError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load device network data.",
+      );
+    } finally {
+      setDeviceLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadOverview();
+    void loadDevices();
+  }, [token]);
+
+  useEffect(() => {
+    if (!selectedDeviceId) {
+      return;
+    }
+
+    void loadDeviceNetwork(selectedDeviceId);
+  }, [selectedDeviceId, token]);
+
+  const handleRefresh = () => {
+    void loadOverview();
+
+    if (selectedDeviceId) {
+      void loadDeviceNetwork(selectedDeviceId);
+    }
+  };
+
+  const snapshot = deviceDetails?.snapshot ?? null;
+  const findings = deviceDetails ? deriveFindings(deviceDetails) : [];
+
+  const tabs: Array<{ key: TabKey; label: string; count: number }> = [
+    { key: "interfaces", label: "Interfaces", count: snapshot?.interfaces.length ?? 0 },
+    { key: "connections", label: "Connections", count: snapshot?.connections.length ?? 0 },
+    { key: "listeners", label: "Listeners", count: snapshot?.listeners.length ?? 0 },
+    { key: "history", label: "History", count: snapshotHistory?.snapshots.length ?? 0 },
+  ];
+
+  return (
+    <div className="tpp">
+      {/* ================= TOOLBAR ================= */}
+
+      <div className="tpp-toolbar">
+        <p className="tpp-count">
+          {overview?.latest_snapshot
+            ? `Latest snapshot ${formatTimestamp(overview.latest_snapshot.collected_at)}`
+            : "Network telemetry from your enrolled devices"}
+        </p>
+
+        <button
+          type="button"
+          className="tpa-btn tpp-btn-outline"
+          onClick={handleRefresh}
+          disabled={loading || deviceLoading}
+        >
+          {loading || deviceLoading ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+
+      {error && (
+        <p className="tpp-inline-error" role="alert">
+          Couldn't load the network overview: {error}
+        </p>
+      )}
+
+      {/* ================= OVERVIEW STATS ================= */}
+
+      <section className="tpp-stats" aria-label="Network overview">
+        <Stat
+          label="Reporting devices"
+          value={overview ? `${overview.reporting_devices} of ${overview.total_devices}` : "—"}
+          note="Devices with a network snapshot"
+        />
+        <Stat
+          label="Interfaces"
+          value={overview?.total_interfaces}
+          note="Across reporting devices"
+        />
+        <Stat
+          label="Connections"
+          value={overview?.total_connections}
+          note="Observed in latest snapshots"
+        />
+        <Stat
+          label="Listeners"
+          value={overview?.total_listeners}
+          note="TCP and UDP listening ports"
+        />
+        <Stat
+          label="Firewall-off reports"
+          value={overview?.firewall_disabled_snapshots}
+          note="Snapshots with a profile disabled"
+          alert={(overview?.firewall_disabled_snapshots ?? 0) > 0}
+        />
+      </section>
+
+      {/* ================= DEVICES + WORKSPACE ================= */}
+
+      <div className="tpp-split">
+        <section className="tpp-card tpp-card-flush tpp-device-list" aria-labelledby="tpp-net-devices">
+          <h2 id="tpp-net-devices" className="tpp-list-title">
+            Devices <span className="tpp-muted">{devices.length}</span>
+          </h2>
+
+          {devicesLoading ? (
+            <p className="tpp-state">Loading devices…</p>
+          ) : devices.length === 0 ? (
+            <p className="tpp-state">No devices are enrolled yet.</p>
+          ) : (
+            <ul>
+              {devices.map((device) => {
+                const selected = selectedDeviceId === device.device_id;
+
+                return (
+                  <li key={device.device_id}>
+                    <button
+                      type="button"
+                      className={`tpp-list-item ${selected ? "is-selected" : ""}`}
+                      onClick={() => setSelectedDeviceId(device.device_id)}
+                      aria-current={selected ? "true" : undefined}
+                    >
+                      <strong>{device.hostname}</strong>
+                      <span>{device.device_id}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        <div className="tpp-workspace">
+          {deviceError && (
+            <p className="tpp-inline-error" role="alert">
+              Couldn't load this device's network data: {deviceError}
+            </p>
+          )}
+
+          {deviceLoading && !deviceDetails && (
+            <p className="tpp-card tpp-state">Loading network data…</p>
+          )}
+
+          {deviceDetails && (
+            <>
+              {/* Device header */}
+              <section className="tpp-card tpp-net-head" aria-busy={deviceLoading}>
+                <div>
+                  <h2>{deviceDetails.device.hostname}</h2>
+                  <p className="tpp-muted tpp-small">
+                    {deviceDetails.device.operating_system}{" "}
+                    {deviceDetails.device.os_version} · Agent v
+                    {deviceDetails.device.agent_version}
+                  </p>
+                </div>
+
+                <dl className="tpp-net-meta">
+                  <div>
+                    <dt>Last seen</dt>
+                    <dd>{formatTimestamp(deviceDetails.device.last_seen)}</dd>
+                  </div>
+                  <div>
+                    <dt>Latest snapshot</dt>
+                    <dd>{snapshot ? formatTimestamp(snapshot.collected_at) : "None yet"}</dd>
+                  </div>
+                </dl>
+              </section>
+
+              {!snapshot ? (
+                <section className="tpp-card tpp-state">
+                  <strong>No network telemetry yet.</strong>
+                  <p>
+                    This device is enrolled but hasn't sent a network snapshot.
+                    The agent sends one about every minute while it's idle.
+                  </p>
+                </section>
+              ) : (
+                <>
+                  {/* Findings + firewall */}
+                  <div className="tpp-grid">
+                    <section className="tpp-card tpp-findings" aria-labelledby="tpp-findings-title">
+                      <h2 id="tpp-findings-title" className="tpp-card-title">
+                        Findings
+                      </h2>
+
+                      {findings.length === 0 ? (
+                        <p className="tpp-ok-note">
+                          No issues found in the latest snapshot.
+                        </p>
+                      ) : (
+                        <ul className="tpp-finding-list">
+                          {findings.map((finding) => (
+                            <li
+                              key={finding.title}
+                              className={`tpp-finding tpp-finding-${finding.severity}`}
+                            >
+                              <div>
+                                <strong>{finding.title}</strong>
+                                <p>{finding.detail}</p>
+                              </div>
+                              <span>{finding.severity === "high" ? "High" : "Medium"}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </section>
+
+                    <section className="tpp-card" aria-labelledby="tpp-fw-title">
+                      <h2 id="tpp-fw-title" className="tpp-card-title">
+                        Firewall profiles
+                      </h2>
+
+                      <ul className="tpp-fw-list">
+                        <FirewallProfile label="Domain" enabled={snapshot.firewall_posture?.domain_enabled} />
+                        <FirewallProfile label="Private" enabled={snapshot.firewall_posture?.private_enabled} />
+                        <FirewallProfile label="Public" enabled={snapshot.firewall_posture?.public_enabled} />
+                      </ul>
+
+                      {snapshot.firewall_posture?.error && (
+                        <p className="tpp-muted tpp-small tpp-fw-error">
+                          {snapshot.firewall_posture.error}
+                        </p>
+                      )}
+                    </section>
+                  </div>
+
+                  {/* Tabs */}
+                  <section className="tpp-card tpp-card-flush">
+                    <div className="tpp-tabs" role="tablist" aria-label="Network data">
+                      {tabs.map((item) => (
+                        <button
+                          key={item.key}
+                          type="button"
+                          role="tab"
+                          id={`tpp-tab-${item.key}`}
+                          aria-selected={tab === item.key}
+                          aria-controls={`tpp-panel-${item.key}`}
+                          className={`tpp-tab ${tab === item.key ? "is-active" : ""}`}
+                          onClick={() => setTab(item.key)}
+                        >
+                          {item.label}
+                          <span>{item.count}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div
+                      role="tabpanel"
+                      id={`tpp-panel-${tab}`}
+                      aria-labelledby={`tpp-tab-${tab}`}
+                      className="tpp-table-wrap tpp-table-tall"
+                    >
+                      {tab === "interfaces" && (
+                        <table className="tpp-table">
+                          <thead>
+                            <tr>
+                              <th scope="col">Interface</th>
+                              <th scope="col">Status</th>
+                              <th scope="col">MAC</th>
+                              <th scope="col">Speed</th>
+                              <th scope="col">Addresses</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {snapshot.interfaces.map((item) => (
+                              <tr key={item.id}>
+                                <td><strong>{item.interface_name}</strong></td>
+                                <td>
+                                  <span className={`tpp-badge tpp-badge-inline ${item.is_up ? "tpp-badge-ok" : "tpp-badge-neutral"}`}>
+                                    {item.is_up ? "Up" : "Down"}
+                                  </span>
+                                </td>
+                                <td className="tpp-mono">{item.mac_address || "—"}</td>
+                                <td>{item.speed_mbps != null ? `${item.speed_mbps} Mbps` : "—"}</td>
+                                <td className="tpp-mono tpp-wrap">{formatAddresses(item.addresses)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+
+                      {tab === "connections" && (
+                        <table className="tpp-table">
+                          <thead>
+                            <tr>
+                              <th scope="col">Protocol</th>
+                              <th scope="col">Local</th>
+                              <th scope="col">Remote</th>
+                              <th scope="col">Status</th>
+                              <th scope="col">Process</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {snapshot.connections.map((item) => (
+                              <tr key={item.id}>
+                                <td>{item.protocol}</td>
+                                <td className="tpp-mono">{formatEndpoint(item.local_address, item.local_port)}</td>
+                                <td className="tpp-mono">{formatEndpoint(item.remote_address, item.remote_port)}</td>
+                                <td>{item.status || "—"}</td>
+                                <td>{item.process_name || item.pid || "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+
+                      {tab === "listeners" && (
+                        <table className="tpp-table">
+                          <thead>
+                            <tr>
+                              <th scope="col">Protocol</th>
+                              <th scope="col">Bind address</th>
+                              <th scope="col">Port</th>
+                              <th scope="col">Process</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {snapshot.listeners.map((item) => (
+                              <tr key={item.id}>
+                                <td>{item.protocol}</td>
+                                <td className="tpp-mono">{item.bind_address || "—"}</td>
+                                <td>
+                                  <strong>{item.port}</strong>
+                                  {item.port === RDP_PORT && (
+                                    <span className="tpp-badge tpp-badge-warn">RDP</span>
+                                  )}
+                                </td>
+                                <td>{item.process_name || item.pid || "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+
+                      {tab === "history" && (
+                        <table className="tpp-table">
+                          <thead>
+                            <tr>
+                              <th scope="col">Collected</th>
+                              <th scope="col">Interfaces</th>
+                              <th scope="col">Connections</th>
+                              <th scope="col">Listeners</th>
+                              <th scope="col">Firewall</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {snapshotHistory?.snapshots.map((item) => {
+                              const firewallHealthy =
+                                item.firewall_available &&
+                                item.firewall_domain_enabled !== false &&
+                                item.firewall_private_enabled !== false &&
+                                item.firewall_public_enabled !== false;
+
+                              return (
+                                <tr key={item.id}>
+                                  <td>{formatTimestamp(item.collected_at)}</td>
+                                  <td>{item.interfaces}</td>
+                                  <td>{item.connections}</td>
+                                  <td>{item.listeners}</td>
+                                  <td>
+                                    <span className={`tpp-badge tpp-badge-inline ${firewallHealthy ? "tpp-badge-ok" : "tpp-badge-danger"}`}>
+                                      {firewallHealthy ? "All on" : "Profile off"}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+
+                      {tabs.find((item) => item.key === tab)?.count === 0 && (
+                        <p className="tpp-state">Nothing reported in this snapshot.</p>
+                      )}
+                    </div>
+                  </section>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================= SMALL COMPONENTS ================= */
+
+function Stat({
+  label,
+  value,
+  note,
+  alert = false,
+}: {
+  label: string;
+  value: number | string | undefined;
+  note: string;
+  alert?: boolean;
+}) {
+  return (
+    <div className={`tpp-stat ${alert ? "tpp-stat-alert" : ""}`}>
+      <span className="tpp-stat-label">{label}</span>
+      <strong>
+        {value === undefined
+          ? "—"
+          : typeof value === "number"
+          ? value.toLocaleString()
+          : value}
+      </strong>
+      <span className="tpp-muted tpp-small">{note}</span>
+    </div>
+  );
+}
+
 function FirewallProfile({
   label,
   enabled,
@@ -1164,101 +743,17 @@ function FirewallProfile({
   label: string;
   enabled: boolean | null | undefined;
 }) {
-  const healthy = enabled === true;
+  const state =
+    enabled == null ? "Unknown" : enabled ? "Enabled" : "Disabled";
+
+  const tone =
+    enabled == null ? "tpp-badge-neutral" : enabled ? "tpp-badge-ok" : "tpp-badge-danger";
 
   return (
-    <div className="network-firewall-profile">
-      <div>
-        <span>{label}</span>
-
-        <strong>
-          {enabled == null
-            ? "UNKNOWN"
-            : healthy
-              ? "ENABLED"
-              : "DISABLED"}
-        </strong>
-      </div>
-
-      <span
-        className={`network-state ${
-          healthy
-            ? "healthy"
-            : enabled === false
-              ? "warning"
-              : ""
-        }`}
-      >
-        {enabled == null
-          ? "UNKNOWN"
-          : healthy
-            ? "OK"
-            : "RISK"}
-      </span>
-    </div>
-  );
-}
-
-function NetworkMetric({
-  label,
-  value,
-  detail,
-  tone,
-}: {
-  label: string;
-  value: number;
-  detail: string;
-  tone:
-    | "blue"
-    | "cyan"
-    | "purple"
-    | "green"
-    | "red";
-}) {
-  return (
-    <div
-      className={`network-security-metric ${tone}`}
-    >
-      <span>
-        {label}
-      </span>
-
-      <strong>
-        {value.toLocaleString("en-IN")}
-      </strong>
-
-      <small>
-        {detail}
-      </small>
-    </div>
-  );
-}
-
-function RoadmapItem({
-  title,
-  description,
-  status,
-}: {
-  title: string;
-  description: string;
-  status: string;
-}) {
-  return (
-    <div className="network-roadmap-item">
-      <div>
-        <strong>
-          {title}
-        </strong>
-
-        <p>
-          {description}
-        </p>
-      </div>
-
-      <span>
-        {status}
-      </span>
-    </div>
+    <li className="tpp-fw-row">
+      <span>{label}</span>
+      <span className={`tpp-badge tpp-badge-inline ${tone}`}>{state}</span>
+    </li>
   );
 }
 
