@@ -249,6 +249,7 @@ function App() {
           onLogin={() => {
             setAuthScreen("login");
           }}
+          onBack={() => setShowLanding(true)}
         />
       );
     }
@@ -261,6 +262,7 @@ function App() {
         onCreateAccount={() => {
           setAuthScreen("register");
         }}
+        onBack={() => setShowLanding(true)}
       />
     );
   }

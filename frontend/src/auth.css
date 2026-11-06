@@ -1,0 +1,334 @@
+/* =========================================================
+   TechAIPILOT sign-in / create account (Direction B)
+   Prefix: "tpu-". Uses tokens.css.
+   ========================================================= */
+
+.tpu {
+  display: flex;
+  min-height: 100vh;
+  background: var(--tp-bg);
+  color: var(--tp-text);
+  font-family: var(--tp-font);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.tpu *,
+.tpu *::before,
+.tpu *::after {
+  box-sizing: border-box;
+}
+
+.tpu :focus-visible {
+  outline: 2px solid var(--tp-accent);
+  outline-offset: 2px;
+}
+
+/* ================= BRAND ================= */
+
+.tpu-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.tpu-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--tp-line-strong);
+  border-radius: var(--tp-radius-sm);
+  background: var(--tp-raised);
+}
+
+.tpu-mark span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tp-accent);
+}
+
+/* ================= SIDE PANEL ================= */
+
+.tpu-side {
+  display: flex;
+  flex: 0 0 44%;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 48px;
+  padding: 40px 48px;
+  border-right: 1px solid var(--tp-line-soft);
+  background: var(--tp-surface);
+}
+
+.tpu-side-copy {
+  max-width: 440px;
+}
+
+.tpu-side-title {
+  margin: 0;
+  font-size: clamp(28px, 3vw, 38px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.tpu-side ul {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 36px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tpu-side li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 16px;
+  border-left: 2px solid var(--tp-line-strong);
+}
+
+.tpu-side li:first-child {
+  border-left-color: var(--tp-accent);
+}
+
+.tpu-side li strong {
+  font-size: 15px;
+}
+
+.tpu-side li span {
+  color: var(--tp-text-soft);
+  font-size: 14px;
+}
+
+.tpu-side-foot {
+  margin: 0;
+  color: var(--tp-text-muted);
+  font-size: 13px;
+}
+
+/* ================= FORM SIDE ================= */
+
+.tpu-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding: 32px;
+}
+
+.tpu-top {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-height: 40px;
+}
+
+.tpu-brand-mobile {
+  display: none;
+  margin-right: auto;
+}
+
+.tpu-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--tp-text-soft);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tpu-back:hover {
+  color: var(--tp-text);
+}
+
+.tpu-card {
+  width: 100%;
+  max-width: 400px;
+  margin: auto;
+  padding: 24px 0 48px;
+}
+
+.tpu-card h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.tpu-subtitle {
+  margin: 6px 0 0;
+  color: var(--tp-text-soft);
+}
+
+.tpu-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 28px;
+}
+
+.tpu-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tpu-field label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.tpu-field input {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--tp-line-strong);
+  border-radius: var(--tp-radius-sm);
+  background: var(--tp-surface);
+  color: var(--tp-text);
+  font: inherit;
+}
+
+.tpu-field input:focus {
+  border-color: var(--tp-accent);
+  outline: none;
+}
+
+.tpu-field input:disabled {
+  opacity: 0.6;
+}
+
+.tpu-password {
+  position: relative;
+}
+
+.tpu-password input {
+  padding-right: 64px;
+}
+
+.tpu-reveal {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tp-text-soft);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tpu-reveal:hover {
+  background: var(--tp-raised);
+  color: var(--tp-text);
+}
+
+.tpu-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: -6px 0 0;
+  padding: 0;
+  color: var(--tp-text-muted);
+  font-size: 13px;
+  list-style: none;
+}
+
+.tpu-rules li::before {
+  content: "○ ";
+}
+
+.tpu-rules li.is-ok {
+  color: var(--tp-accent-text);
+}
+
+.tpu-rules li.is-ok::before {
+  content: "✓ ";
+}
+
+.tpu-error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--tp-danger-line);
+  border-radius: var(--tp-radius-sm);
+  background: var(--tp-danger-bg);
+  color: var(--tp-danger-text);
+  font-size: 14px;
+}
+
+.tpu-submit {
+  height: 46px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: var(--tp-radius-sm);
+  background: var(--tp-accent);
+  color: var(--tp-accent-ink);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tpu-submit:hover:not(:disabled) {
+  background: var(--tp-accent-hover);
+}
+
+.tpu-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tpu-switch {
+  margin: 24px 0 0;
+  color: var(--tp-text-soft);
+  font-size: 14px;
+}
+
+.tpu-switch button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--tp-accent-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tpu-switch button:hover {
+  text-decoration: underline;
+}
+
+/* ================= RESPONSIVE ================= */
+
+@media (max-width: 900px) {
+  .tpu-side {
+    display: none;
+  }
+
+  .tpu-brand-mobile {
+    display: flex;
+  }
+
+  .tpu-main {
+    padding: 20px;
+  }
+}

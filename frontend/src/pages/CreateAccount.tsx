@@ -1,101 +1,67 @@
-import {
-  FormEvent,
-  useState,
-} from "react";
+import { useState } from "react";
+import type { FormEvent } from "react";
 
-import {
-  registerUser,
-} from "../api";
+import { registerUser } from "../api";
+import AuthLayout, { PasswordInput } from "../components/AuthLayout";
 
 type CreateAccountProps = {
-  onRegisterSuccess: (
-    token: string,
-  ) => void;
-
+  onRegisterSuccess: (token: string) => void;
   onLogin: () => void;
+  onBack?: () => void;
 };
 
-function CreateAccount({
-  onRegisterSuccess,
-  onLogin,
-}: CreateAccountProps) {
-  const [email, setEmail] =
-    useState("");
+const MIN_LENGTH = 8;
+const MAX_LENGTH = 128;
 
-  const [password, setPassword] =
-    useState("");
+function CreateAccount({ onRegisterSuccess, onLogin, onBack }: CreateAccountProps) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [confirmPassword, setConfirmPassword] =
-    useState("");
+  const lengthOk = password.length >= MIN_LENGTH && password.length <= MAX_LENGTH;
+  const matchOk = confirmPassword.length > 0 && password === confirmPassword;
 
-  const [error, setError] =
-    useState("");
-
-  const [isSubmitting, setIsSubmitting] =
-    useState(false);
-
-  const handleSubmit = async (
-    event: FormEvent<HTMLFormElement>,
-  ) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-
     setError("");
 
-    const normalizedEmail =
-      email.trim();
+    const normalizedEmail = email.trim();
 
     if (!normalizedEmail) {
-      setError(
-        "Please enter your email address.",
-      );
+      setError("Enter your email address.");
       return;
     }
 
     if (!password) {
-      setError(
-        "Please enter a password.",
-      );
+      setError("Enter a password.");
       return;
     }
 
-    if (password.length < 8) {
-      setError(
-        "Password must be at least 8 characters.",
-      );
+    if (password.length < MIN_LENGTH) {
+      setError(`Use at least ${MIN_LENGTH} characters for your password.`);
       return;
     }
 
-    if (password.length > 128) {
-      setError(
-        "Password must not exceed 128 characters.",
-      );
+    if (password.length > MAX_LENGTH) {
+      setError(`Use no more than ${MAX_LENGTH} characters for your password.`);
       return;
     }
 
     if (password !== confirmPassword) {
-      setError(
-        "Passwords do not match.",
-      );
+      setError("The two passwords don't match.");
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      const response =
-        await registerUser(
-          normalizedEmail,
-          password,
-        );
+      const response = await registerUser(normalizedEmail, password);
 
-      localStorage.setItem(
-        "TECHAIPILOT_access_token",
-        response.access_token,
-      );
-
-      onRegisterSuccess(
-        response.access_token,
-      );
+      // App.tsx stores the token and loads the user.
+      onRegisterSuccess(response.access_token);
     } catch (registerError) {
       setError(
         registerError instanceof Error
@@ -108,209 +74,78 @@ function CreateAccount({
   };
 
   return (
-    <div className="auth-page">
-      <div
-        className="auth-background-grid"
-        aria-hidden="true"
-      />
+    <AuthLayout
+      title="Create your workspace"
+      subtitle="Set up an account, then enroll your first device with a one-time code."
+      onBack={onBack}
+    >
+      <form className="tpu-form" onSubmit={handleSubmit} noValidate>
+        <div className="tpu-field">
+          <label htmlFor="register-email">Work email</label>
+          <input
+            id="register-email"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            autoComplete="email"
+            disabled={isSubmitting}
+            autoFocus
+          />
+        </div>
 
-      <div
-        className="auth-background-glow auth-background-glow-one"
-        aria-hidden="true"
-      />
+        <div className="tpu-field">
+          <label htmlFor="register-password">Password</label>
+          <PasswordInput
+            id="register-password"
+            value={password}
+            onChange={setPassword}
+            autoComplete="new-password"
+            disabled={isSubmitting}
+            describedBy="register-password-rules"
+            visible={showPassword}
+            onToggle={() => setShowPassword((value) => !value)}
+          />
+        </div>
 
-      <div
-        className="auth-background-glow auth-background-glow-two"
-        aria-hidden="true"
-      />
+        <div className="tpu-field">
+          <label htmlFor="register-confirm">Confirm password</label>
+          <PasswordInput
+            id="register-confirm"
+            value={confirmPassword}
+            onChange={setConfirmPassword}
+            autoComplete="new-password"
+            disabled={isSubmitting}
+            describedBy="register-password-rules"
+            visible={showPassword}
+            onToggle={() => setShowPassword((value) => !value)}
+          />
+        </div>
 
-      <main className="auth-container">
-        <section className="auth-card">
-          {/* BRAND */}
+        <ul id="register-password-rules" className="tpu-rules">
+          <li className={lengthOk ? "is-ok" : ""}>
+            {MIN_LENGTH} to {MAX_LENGTH} characters
+          </li>
+          <li className={matchOk ? "is-ok" : ""}>Both passwords match</li>
+        </ul>
 
-          <div className="auth-brand">
-            <div
-              className="auth-brand-mark"
-              aria-hidden="true"
-            >
-              <span>TP</span>
-            </div>
+        {error && (
+          <p className="tpu-error" role="alert">
+            {error}
+          </p>
+        )}
 
-            <div>
-              <strong>
-                TECHAIPILOT
-              </strong>
+        <button type="submit" className="tpu-submit" disabled={isSubmitting}>
+          {isSubmitting ? "Creating account…" : "Create account"}
+        </button>
+      </form>
 
-              <span>
-                REMOTE SUPPORT
-              </span>
-            </div>
-          </div>
-
-          {/* HEADING */}
-
-          <div className="auth-heading">
-            <div className="auth-eyebrow">
-              <span />
-              NEW ACCOUNT
-            </div>
-
-            <h1>
-              Create your account
-            </h1>
-
-            <p>
-              Set up your TechAIPILOT
-              account to manage
-              endpoints and provide
-              secure remote support.
-            </p>
-          </div>
-
-          {/* FORM */}
-
-          <form
-            className="auth-form"
-            onSubmit={handleSubmit}
-          >
-            <div className="auth-field">
-              <label htmlFor="register-email">
-                Email address
-              </label>
-
-              <input
-                id="register-email"
-                type="email"
-                value={email}
-                onChange={(event) =>
-                  setEmail(
-                    event.target.value,
-                  )
-                }
-                placeholder="you@company.com"
-                autoComplete="email"
-                disabled={isSubmitting}
-              />
-            </div>
-
-            <div className="auth-field">
-              <label htmlFor="register-password">
-                Password
-              </label>
-
-              <input
-                id="register-password"
-                type="password"
-                value={password}
-                onChange={(event) =>
-                  setPassword(
-                    event.target.value,
-                  )
-                }
-                placeholder="At least 8 characters"
-                autoComplete="new-password"
-                disabled={isSubmitting}
-              />
-
-              <span className="auth-field-hint">
-                Use 8–128 characters.
-              </span>
-            </div>
-
-            <div className="auth-field">
-              <label htmlFor="register-confirm-password">
-                Confirm password
-              </label>
-
-              <input
-                id="register-confirm-password"
-                type="password"
-                value={confirmPassword}
-                onChange={(event) =>
-                  setConfirmPassword(
-                    event.target.value,
-                  )
-                }
-                placeholder="Enter your password again"
-                autoComplete="new-password"
-                disabled={isSubmitting}
-              />
-            </div>
-
-            {error && (
-              <div
-                className="auth-error"
-                role="alert"
-              >
-                <span aria-hidden="true">
-                  !
-                </span>
-
-                <p>
-                  {error}
-                </p>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              className="auth-submit"
-              disabled={isSubmitting}
-            >
-              {isSubmitting
-                ? "Creating account..."
-                : "Create account"}
-            </button>
-          </form>
-
-          {/* LOGIN */}
-
-          <div className="auth-switch">
-            <span>
-              Already have an account?
-            </span>
-
-            <button
-              type="button"
-              onClick={onLogin}
-              disabled={isSubmitting}
-            >
-              Sign in
-            </button>
-          </div>
-
-          {/* SECURITY FOOTER */}
-
-          <div className="auth-security">
-            <span
-              className="auth-security-icon"
-              aria-hidden="true"
-            >
-              ✓
-            </span>
-
-            <span>
-              Secure authenticated
-              connection
-            </span>
-          </div>
-        </section>
-
-        <footer className="auth-footer">
-          <span>
-            TECHAIPILOT
-          </span>
-
-          <span>
-            Secure IT Remote Support
-          </span>
-
-          <span>
-            v1.0.0
-          </span>
-        </footer>
-      </main>
-    </div>
+      <p className="tpu-switch">
+        Already have an account?{" "}
+        <button type="button" onClick={onLogin} disabled={isSubmitting}>
+          Sign in
+        </button>
+      </p>
+    </AuthLayout>
   );
 }
 
