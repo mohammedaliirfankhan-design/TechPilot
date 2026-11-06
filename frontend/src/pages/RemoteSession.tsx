@@ -12,8 +12,12 @@ import type {
 
 import {
   disconnectRemoteSession,
+  getAgents,
+  getRemoteSession,
   getRemoteWebSocketBaseUrl,
 } from "../api";
+
+import "../session.css";
 
 
 type MouseButtonName = "left" | "right" | "middle";
@@ -33,7 +37,7 @@ type RemoteCommand =
   | { type: "frame_ack"; seq: number }
   | { type: "viewer_ready" };
 
-type RemoteStatus = "connecting" | "live" | "error" | "ended";
+type RemoteStatus = "connecting" | "live" | "reconnecting" | "error" | "ended";
 
 type RemoteSessionProps = {
   sessionId?: number;
@@ -46,8 +50,12 @@ const WHEEL_INTERVAL_MS = 16;
 const STREAM_RETRY_MS = 1000;
 const CONTROL_RETRY_MS = 1000;
 
-// Frame header written by the agent: "TPF1" | uint32 seq | uint16 w | uint16 h
+// Frame header written by the agent:
+//   "TPF1" | uint32 seq | uint16 w | uint16 h                   (12 bytes)
+//   "TPF2" | uint32 seq | uint16 w | uint16 h | uint16 rtt_ms   (14 bytes, future agents)
 const FRAME_HEADER_BYTES = 12;
+const FRAME_HEADER_V2_BYTES = 14;
+const SESSION_POLL_MS = 5000;
 
 const BUTTON_NAMES: Record<number, MouseButtonName> = {
   0: "left",
@@ -121,6 +129,13 @@ export default function RemoteSession({
   const [remoteError, setRemoteError] =
     useState<string | null>(null);
 
+  const [fps, setFps] = useState(0);
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [deviceName, setDeviceName] = useState<string | null>(null);
+  const [keysOpen, setKeysOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
 
   /* ================= REFS ================= */
 
@@ -134,6 +149,12 @@ export default function RemoteSession({
   const controlRetryTimerRef = useRef<number | null>(null);
 
   const viewerStoppedRef = useRef(false);
+
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const hasFrameRef = useRef(false);
+  const wasLiveRef = useRef(false);
+  const framesRenderedRef = useRef(0);
+  const noticeTimerRef = useRef<number | null>(null);
 
   // Latest-frame-wins: only one frame is ever waiting to be drawn.
   const pendingFrameRef = useRef<{ blob: Blob; seq: number } | null>(null);
@@ -297,6 +318,16 @@ export default function RemoteSession({
 
       bitmap.close();
 
+      framesRenderedRef.current += 1;
+
+      // "Live" means a picture is actually on screen, not just a socket.
+      if (!hasFrameRef.current) {
+        hasFrameRef.current = true;
+        wasLiveRef.current = true;
+        setRemoteStatus("live");
+        setRemoteError(null);
+      }
+
       // Tell the agent this frame is on screen; it uses this to pace
       // itself so frames never queue up in the network.
       if (pending.seq > 0) {
@@ -391,7 +422,6 @@ export default function RemoteSession({
           return;
         }
 
-        setRemoteStatus("live");
         setRemoteError(null);
 
         // Ask the agent for a fresh full frame right away.
@@ -410,17 +440,27 @@ export default function RemoteSession({
           const data = event.data;
           const view = new DataView(data);
 
-          const hasHeader =
-            data.byteLength > FRAME_HEADER_BYTES &&
+          const hasMagic =
+            data.byteLength > FRAME_HEADER_V2_BYTES &&
             view.getUint8(0) === 0x54 && // T
             view.getUint8(1) === 0x50 && // P
-            view.getUint8(2) === 0x46 && // F
-            view.getUint8(3) === 0x31;   // 1
+            view.getUint8(2) === 0x46;   // F
 
-          if (hasHeader) {
+          const version = hasMagic ? view.getUint8(3) : 0;
+
+          if (version === 0x31 || version === 0x32) {
+            const headerBytes =
+              version === 0x32 ? FRAME_HEADER_V2_BYTES : FRAME_HEADER_BYTES;
+
             seq = view.getUint32(4);
+
+            if (version === 0x32) {
+              const rtt = view.getUint16(12);
+              setLatencyMs(rtt > 0 ? rtt : null);
+            }
+
             blob = new Blob(
-              [new Uint8Array(data, FRAME_HEADER_BYTES)],
+              [new Uint8Array(data, headerBytes)],
               { type: "image/jpeg" },
             );
           } else {
@@ -457,7 +497,8 @@ export default function RemoteSession({
 
         console.log("[REMOTE] Screen stream closed:", event.code, event.reason);
 
-        setRemoteStatus("connecting");
+        hasFrameRef.current = false;
+        setRemoteStatus(wasLiveRef.current ? "reconnecting" : "connecting");
         setRemoteError(null);
 
         streamRetryTimerRef.current = window.setTimeout(
@@ -802,6 +843,191 @@ export default function RemoteSession({
   );
 
 
+  /* ================= SESSION INFO / HEALTH ================= */
+
+  // Frames drawn per second, sampled once a second.
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setFps(framesRenderedRef.current);
+      framesRenderedRef.current = 0;
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  // Show which device this session belongs to.
+  useEffect(() => {
+    if (!Number.isFinite(effectiveSessionId) || effectiveSessionId <= 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const session = await getRemoteSession(effectiveSessionId);
+        const agents = await getAgents(token);
+        const agent = agents.find((item) => item.device_id === session.device_id);
+
+        if (!cancelled) {
+          setDeviceName(agent?.hostname ?? session.device_id ?? null);
+        }
+      } catch {
+        // The name is cosmetic; the session works without it.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveSessionId, token]);
+
+  // Notice when the session is ended elsewhere (other tab, agent, admin).
+  useEffect(() => {
+    if (!Number.isFinite(effectiveSessionId) || effectiveSessionId <= 0) {
+      return;
+    }
+
+    const interval = window.setInterval(async () => {
+      if (viewerStoppedRef.current) {
+        return;
+      }
+
+      try {
+        const session = await getRemoteSession(effectiveSessionId);
+
+        if (session.status === "ENDED") {
+          viewerStoppedRef.current = true;
+          setRemoteStatus("ended");
+          streamSocketRef.current?.close(1000, "session ended");
+          controlSocketRef.current?.close(1000, "session ended");
+        }
+      } catch {
+        // Temporary API failures should not end the viewer.
+      }
+    }, SESSION_POLL_MS);
+
+    return () => window.clearInterval(interval);
+  }, [effectiveSessionId]);
+
+  // Track fullscreen; while fullscreen, ask the browser to pass system
+  // keys (Windows key, Alt+Tab, Esc) to the page where supported.
+  useEffect(() => {
+    const onChange = () => {
+      const active = document.fullscreenElement === rootRef.current;
+      setIsFullscreen(active);
+
+      const keyboard = (navigator as Navigator & {
+        keyboard?: { lock?: () => Promise<void>; unlock?: () => void };
+      }).keyboard;
+
+      if (active) {
+        void keyboard?.lock?.().catch(() => undefined);
+      } else {
+        keyboard?.unlock?.();
+      }
+
+      window.setTimeout(fitCanvas, 50);
+    };
+
+    document.addEventListener("fullscreenchange", onChange);
+
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, [fitCanvas]);
+
+  /* ================= TOOLBAR ACTIONS ================= */
+
+  const showNotice = (message: string) => {
+    setNotice(message);
+
+    if (noticeTimerRef.current !== null) {
+      window.clearTimeout(noticeTimerRef.current);
+    }
+
+    noticeTimerRef.current = window.setTimeout(() => setNotice(null), 3000);
+  };
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await rootRef.current?.requestFullscreen();
+      }
+    } catch {
+      showNotice("Fullscreen isn't available in this browser.");
+    }
+
+    canvasRef.current?.focus();
+  };
+
+  const sendShortcut = (keys: string[], label: string) => {
+    setKeysOpen(false);
+
+    const sent =
+      keys.length === 1
+        ? sendRemoteCommand({ type: "key_press", key: keys[0] })
+        : sendRemoteCommand({ type: "hotkey", keys });
+
+    showNotice(sent ? `Sent ${label}` : "Not connected. Try again in a moment.");
+    canvasRef.current?.focus();
+  };
+
+  const pasteAsTyping = async () => {
+    setKeysOpen(false);
+
+    try {
+      const text = await navigator.clipboard.readText();
+
+      if (!text) {
+        showNotice("Your clipboard is empty.");
+        return;
+      }
+
+      if (text.length > 2000) {
+        showNotice("Clipboard text is too long (2,000 characters max).");
+        return;
+      }
+
+      const sent = sendRemoteCommand({ type: "type_text", text });
+      showNotice(sent ? `Typed ${text.length} characters` : "Not connected. Try again in a moment.");
+    } catch {
+      showNotice("Allow clipboard access in your browser to paste.");
+    }
+
+    canvasRef.current?.focus();
+  };
+
+  // Close the shortcuts menu with Escape or a click elsewhere.
+  useEffect(() => {
+    if (!keysOpen) {
+      return;
+    }
+
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setKeysOpen(false);
+      }
+    };
+
+    const onClick = (event: globalThis.MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+
+      if (!target?.closest(".tps-keys")) {
+        setKeysOpen(false);
+      }
+    };
+
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onClick);
+
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onClick);
+    };
+  }, [keysOpen]);
+
+
   /* ================= END SESSION ================= */
 
   const endSession = async () => {
@@ -868,164 +1094,145 @@ export default function RemoteSession({
 
   /* ================= RENDER ================= */
 
-  return (
-    <div
-      style={{
-        width: "100vw",
-        height: "100vh",
-        background: "#07111f",
-        color: "#ffffff",
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-        fontFamily: "Inter, system-ui, sans-serif",
-      }}
-    >
-      <header
-        style={{
-          height: "58px",
-          minHeight: "58px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0 20px",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
-          background: "#0b1727",
-        }}
-      >
-        <div>
-          <strong style={{ fontSize: "16px" }}>
-            TechAIPILOT Remote Session
-          </strong>
+  const statusLabel: Record<RemoteStatus, string> = {
+    connecting: "Connecting",
+    live: "Live",
+    reconnecting: "Reconnecting",
+    error: "Error",
+    ended: "Ended",
+  };
 
-          <div style={{ fontSize: "12px", opacity: 0.65, marginTop: "2px" }}>
-            Remote Endpoint • Session #{effectiveSessionId}
-          </div>
+  const overlayText: Partial<Record<RemoteStatus, { title: string; body: string }>> = {
+    connecting: {
+      title: "Connecting to the remote screen…",
+      body: "Waiting for the agent to send the first frame.",
+    },
+    reconnecting: {
+      title: "Connection lost. Reconnecting…",
+      body: "The picture will come back on its own once the connection recovers.",
+    },
+    error: {
+      title: "The remote screen is unavailable.",
+      body: remoteError ?? "Check that the agent is running on the device.",
+    },
+    ended: {
+      title: "This session has ended.",
+      body: "You can close this tab.",
+    },
+  };
+
+  const overlay = overlayText[remoteStatus];
+
+  return (
+    <div ref={rootRef} className="tps">
+      <header className="tps-bar">
+        <div className="tps-title">
+          <strong>{deviceName ?? "Remote session"}</strong>
+          <span className="tps-muted">Session {effectiveSessionId}</span>
+          <span className={`tps-status tps-status-${remoteStatus}`} role="status">
+            <span className="tps-status-dot" aria-hidden="true" />
+            {statusLabel[remoteStatus]}
+            {remoteStatus === "live" && (
+              <>
+                {latencyMs !== null && <> · {latencyMs} ms</>}
+                {" · "}
+                {fps} fps
+              </>
+            )}
+          </span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <span
-            style={{
-              fontSize: "12px",
-              fontWeight: 700,
-              color: remoteStatus === "live" ? "#67e8f9" : "#94a3b8",
-            }}
-          >
-            ●{" "}
-            {remoteStatus === "live"
-              ? "LIVE"
-              : remoteStatus === "ended"
-              ? "ENDED"
-              : remoteStatus === "error"
-              ? "ERROR"
-              : "CONNECTING"}
-          </span>
+        <div className="tps-tools">
+          <div className="tps-keys">
+            <button
+              type="button"
+              className="tps-btn"
+              aria-haspopup="menu"
+              aria-expanded={keysOpen}
+              onClick={() => setKeysOpen((open) => !open)}
+              disabled={remoteStatus === "ended"}
+            >
+              Keys
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+
+            {keysOpen && (
+              <div className="tps-menu" role="menu">
+                <button type="button" role="menuitem" onClick={() => sendShortcut(["win"], "Windows key")}>
+                  Windows key
+                </button>
+                <button type="button" role="menuitem" onClick={() => sendShortcut(["alt", "tab"], "Alt+Tab")}>
+                  Alt+Tab
+                </button>
+                <button type="button" role="menuitem" onClick={() => sendShortcut(["ctrl", "shift", "esc"], "Task Manager")}>
+                  Task Manager <span>Ctrl+Shift+Esc</span>
+                </button>
+                <button type="button" role="menuitem" onClick={() => sendShortcut(["win", "r"], "Run dialog")}>
+                  Run dialog <span>Win+R</span>
+                </button>
+                <button type="button" role="menuitem" onClick={() => sendShortcut(["win", "l"], "Lock")}>
+                  Lock screen <span>Win+L</span>
+                </button>
+                <div className="tps-menu-sep" role="separator" />
+                <button type="button" role="menuitem" onClick={() => void pasteAsTyping()}>
+                  Paste as typing
+                </button>
+              </div>
+            )}
+          </div>
 
           <button
             type="button"
+            className="tps-btn"
+            onClick={() => void toggleFullscreen()}
+            aria-pressed={isFullscreen}
+          >
+            {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          </button>
+
+          <button
+            type="button"
+            className="tps-btn tps-btn-danger"
             onClick={endSession}
             disabled={remoteStatus === "ended"}
-            style={{
-              border: "0",
-              borderRadius: "8px",
-              padding: "9px 15px",
-              background: "#dc2626",
-              color: "#ffffff",
-              fontWeight: 700,
-              cursor: remoteStatus === "ended" ? "default" : "pointer",
-              opacity: remoteStatus === "ended" ? 0.5 : 1,
-            }}
           >
-            End Session
+            End session
           </button>
         </div>
       </header>
 
-      <main
-        style={{
-          flex: 1,
-          minHeight: 0,
-          position: "relative",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "16px",
-          background: "#02060b",
-        }}
-      >
-        <div
-          ref={screenRef}
-          style={{
-            width: "100%",
-            height: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            overflow: "hidden",
-            outline: "none",
-          }}
-        >
+      <main className="tps-stage">
+        <div ref={screenRef} className="tps-screen">
           <canvas
             ref={canvasRef}
             tabIndex={0}
+            aria-label="Remote screen. Click to control the remote device."
             onMouseMove={handleMouseMove}
             onMouseDown={handleMouseDown}
             onContextMenu={handleContextMenu}
             onKeyDown={handleKeyDown}
-            style={{
-              cursor: "default",
-              userSelect: "none",
-              WebkitUserSelect: "none",
-              background: "#000000",
-              display: "block",
-              outline: "none",
-            }}
+            className={remoteStatus === "live" ? "" : "tps-canvas-empty"}
           />
         </div>
 
-        {remoteStatus !== "live" && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "8px",
-              color: "#94a3b8",
-              pointerEvents: "none",
-            }}
-          >
-            <strong>
-              {remoteStatus === "connecting"
-                ? "Connecting to remote screen..."
-                : remoteStatus === "error"
-                ? "Remote screen unavailable"
-                : "Remote session ended"}
-            </strong>
-
-            {remoteError && (
-              <span style={{ fontSize: "12px" }}>{remoteError}</span>
-            )}
+        {overlay && (
+          <div className="tps-overlay">
+            <strong>{overlay.title}</strong>
+            <span>{overlay.body}</span>
           </div>
         )}
+
+        <p className="tps-notice" aria-live="polite">
+          {notice}
+        </p>
       </main>
 
-      <footer
-        style={{
-          height: "42px",
-          minHeight: "42px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          borderTop: "1px solid rgba(255,255,255,0.08)",
-          background: "#0b1727",
-          color: "#94a3b8",
-          fontSize: "12px",
-        }}
-      >
-        Mouse • Keyboard • Scroll • Remote Control
+      <footer className="tps-foot">
+        Click the screen to control it. Mouse, keyboard and scroll go to the
+        remote device.
+        {isFullscreen && " Hold Esc to leave fullscreen."}
       </footer>
     </div>
   );
