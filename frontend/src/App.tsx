@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useState,
 } from "react";
@@ -23,6 +24,9 @@ import type {
   User,
 } from "./api";
 
+import "./tokens.css";
+import "./shell.css";
+
 type Page = "home" | "devices" | "network-security";
 
 type AuthScreen =
@@ -30,26 +34,18 @@ type AuthScreen =
   | "register";
 
 const TOKEN_KEY =
-   "techpilot_access_token";
+  "techpilot_access_token";
 
-const pageTitles: Record<
-  Page,
-  string
-> = {
+const pageTitles: Record<Page, string> = {
   home: "Home",
   devices: "Devices",
-  "network-security": "Network Security",
+  "network-security": "Network security",
 };
 
-const pageDescriptions: Record<
-  Page,
-  string
-> = {
-  home:
-    "Secure remote support for your connected endpoints.",
-  devices:
-    "View connected TechAIPILOT agents and start remote support sessions.",
-    "network-security": "Network visibility, posture, and endpoint telemetry",
+const pageDescriptions: Record<Page, string> = {
+  home: "An overview of your enrolled devices and their network findings.",
+  devices: "Enrolled TechAIPILOT agents. Open a device to start a shell or a remote session.",
+  "network-security": "Firewall state, listeners and connections reported by your devices.",
 };
 
 function App() {
@@ -80,7 +76,7 @@ function App() {
     useState<AuthScreen>("login");
 
   const [showLanding, setShowLanding] =
-  useState(true);
+    useState(true);
 
   const [page, setPage] =
     useState<Page>("home");
@@ -90,6 +86,9 @@ function App() {
 
   const [selectedDeviceId, setSelectedDeviceId] =
     useState<string | null>(null);
+
+  const [navOpen, setNavOpen] =
+    useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -149,14 +148,14 @@ function App() {
   }, []);
 
   const handleAuthenticated = (
-  accessToken: string,
-) => {
-  localStorage.setItem(
-    TOKEN_KEY,
-    accessToken,
-  );
+    accessToken: string,
+  ) => {
+    localStorage.setItem(
+      TOKEN_KEY,
+      accessToken,
+    );
 
-  setToken(accessToken);
+    setToken(accessToken);
 
     void getCurrentUser(
       accessToken,
@@ -188,6 +187,7 @@ function App() {
     setSelectedDeviceId(null);
     setQuery("");
     setPage("home");
+    setNavOpen(false);
     setAuthScreen("login");
     setShowLanding(true);
   };
@@ -200,68 +200,72 @@ function App() {
     setSelectedDeviceId(null);
   };
 
+  const handleOpenDevice = (
+    deviceId: string,
+  ) => {
+    setPage("devices");
+    setQuery("");
+    setSelectedDeviceId(deviceId);
+  };
+
+  const closeNav = useCallback(
+    () => setNavOpen(false),
+    [],
+  );
+
   if (authLoading) {
     return (
-      <div className="auth-loading">
-        <div className="auth-loading-card">
-          <div className="auth-loading-mark">
-            TP
-          </div>
-
-          <strong>
-            TECHAIPILOT
-          </strong>
-
-          <span>
-            VERIFYING SECURE SESSION...
-          </span>
-        </div>
+      <div className="tpa-loading" role="status">
+        <span className="tpa-brand-mark" aria-hidden="true">
+          <span />
+        </span>
+        <p>Checking your session…</p>
       </div>
     );
   }
 
   if (!token || !currentUser) {
-  if (showLanding) {
-    return (
-      <Landing
-        onGetStarted={() => {
-          setShowLanding(false);
-          setAuthScreen("register");
-        }}
-        onLogin={() => {
-          setShowLanding(false);
-          setAuthScreen("login");
-        }}
-      />
-    );
-  }
+    if (showLanding) {
+      return (
+        <Landing
+          onGetStarted={() => {
+            setShowLanding(false);
+            setAuthScreen("register");
+          }}
+          onLogin={() => {
+            setShowLanding(false);
+            setAuthScreen("login");
+          }}
+        />
+      );
+    }
 
-  if (authScreen === "register") {
+    if (authScreen === "register") {
+      return (
+        <CreateAccount
+          onRegisterSuccess={
+            handleAuthenticated
+          }
+          onLogin={() => {
+            setAuthScreen("login");
+          }}
+        />
+      );
+    }
+
     return (
-      <CreateAccount
-        onRegisterSuccess={
+      <Login
+        onLoginSuccess={
           handleAuthenticated
         }
-        onLogin={() => {
-          setAuthScreen("login");
+        onCreateAccount={() => {
+          setAuthScreen("register");
         }}
       />
     );
   }
 
-  return (
-    <Login
-      onLoginSuccess={
-        handleAuthenticated
-      }
-      onCreateAccount={() => {
-        setAuthScreen("register");
-      }}
-    />
-  );
-}
-
-    if (
+  if (
     remoteSessionId &&
     Number.isFinite(
       Number(remoteSessionId),
@@ -280,113 +284,72 @@ function App() {
   const renderPage = () => {
     if (page === "home") {
       return (
-  <Home
-    token={token}
-    onNavigate={() =>
-      handleNavigate("devices")
+        <Home
+          token={token}
+          onNavigate={handleNavigate}
+          onOpenDevice={handleOpenDevice}
+        />
+      );
     }
-  />
-);
+
+    if (page === "network-security") {
+      return <NetworkSecurity token={token} />;
     }
-if (page === "network-security") {
-  return <NetworkSecurity token={token} />;
-}
+
     if (selectedDeviceId) {
       return (
-  <DeviceDetails
-    deviceId={selectedDeviceId}
-    token={token}
-    onBack={() =>
-      setSelectedDeviceId(null)
-    }
-  />
-);
+        <DeviceDetails
+          deviceId={selectedDeviceId}
+          token={token}
+          onBack={() =>
+            setSelectedDeviceId(null)
+          }
+        />
+      );
     }
 
     return (
-  <Devices
-    searchQuery={query}
-    token={token}
-    onDeviceSelect={
-      setSelectedDeviceId
-    }
-  />
-);
+      <Devices
+        searchQuery={query}
+        token={token}
+        onDeviceSelect={
+          setSelectedDeviceId
+        }
+      />
+    );
   };
 
   return (
-    <div className="TECHAIPILOT-app">
-      <div
-        className="background-grid"
-        aria-hidden="true"
-      />
-
-      <div
-        className="background-glow background-glow-one"
-        aria-hidden="true"
-      />
-
-      <div
-        className="background-glow background-glow-two"
-        aria-hidden="true"
-      />
+    <div className="tpa">
+      <a className="tpa-skip" href="#tpa-content">
+        Skip to content
+      </a>
 
       <Sidebar
         page={page}
         email={currentUser.email}
-        onNavigate={
-          handleNavigate
-        }
+        mobileOpen={navOpen}
+        onCloseMobile={closeNav}
+        onNavigate={handleNavigate}
         onLogout={handleLogout}
       />
 
-<div className="app-main">
-
+      <div className="tpa-main">
         <Topbar
           page={page}
           title={pageTitles[page]}
           query={query}
           onQueryChange={setQuery}
-          onLogout={handleLogout}
+          onOpenNav={() => setNavOpen(true)}
         />
 
-        <main className="app-content">
-          <header className="page-header">
-            <div className="page-header-copy">
-              <div className="page-eyebrow">
-                <span className="eyebrow-dot" />
-
-                TECHAIPILOT /{" "}
-                {pageTitles[
-                  page
-                ].toUpperCase()}
-              </div>
-
-              <h1>
-                {pageTitles[page]}
-              </h1>
-
-              <p>
-                {
-                  pageDescriptions[
-                    page
-                  ]
-                }
-              </p>
-            </div>
-
-            <div className="page-header-status">
-              <span className="pulse-dot" />
-
-              <span>
-                REMOTE SUPPORT READY
-              </span>
-            </div>
+        <main id="tpa-content" className="tpa-content">
+          <header className="tpa-page-header">
+            <h1>{pageTitles[page]}</h1>
+            <p>{pageDescriptions[page]}</p>
           </header>
 
-          <section className="page-content">
-            {renderPage()}
-          </section>
+          {renderPage()}
         </main>
       </div>
     </div>

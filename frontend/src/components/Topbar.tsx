@@ -1,7 +1,4 @@
-import {
-  useEffect,
-  useState,
-} from "react";
+import { useEffect, useRef } from "react";
 
 type Page = "home" | "devices" | "network-security";
 
@@ -10,7 +7,7 @@ type TopbarProps = {
   title: string;
   query: string;
   onQueryChange: (query: string) => void;
-  onLogout: () => void;
+  onOpenNav: () => void;
 };
 
 function Topbar({
@@ -18,172 +15,89 @@ function Topbar({
   title,
   query,
   onQueryChange,
-  onLogout,
+  onOpenNav,
 }: TopbarProps) {
-  const [clock, setClock] =
-    useState("");
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const showSearch = page === "devices";
 
-  const [isSearchFocused, setIsSearchFocused] =
-    useState(false);
-
+  // Ctrl+K / Cmd+K focuses device search.
   useEffect(() => {
-    const updateClock = () => {
-      setClock(
-        new Intl.DateTimeFormat(
-          "en-IN",
-          {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-            hour12: false,
-          },
-        ).format(new Date()),
-      );
-    };
+    if (!showSearch) {
+      return;
+    }
 
-    updateClock();
-
-    const interval =
-      window.setInterval(
-        updateClock,
-        1000,
-      );
-
-    return () =>
-      window.clearInterval(
-        interval,
-      );
-  }, []);
-
-  useEffect(() => {
-    const handleShortcut = (
-      event: KeyboardEvent,
-    ) => {
-      if (
-        (event.ctrlKey ||
-          event.metaKey) &&
-        event.key.toLowerCase() ===
-          "k"
-      ) {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-
-        const input =
-          document.querySelector<HTMLInputElement>(
-            ".topbar .search input",
-          );
-
-        input?.focus();
-      }
-
-      if (
-        event.key === "Escape" &&
-        document.activeElement instanceof
-          HTMLInputElement
-      ) {
-        document.activeElement.blur();
+        searchRef.current?.focus();
       }
     };
 
-    window.addEventListener(
-      "keydown",
-      handleShortcut,
-    );
+    window.addEventListener("keydown", handleShortcut);
 
-    return () =>
-      window.removeEventListener(
-        "keydown",
-        handleShortcut,
-      );
-  }, []);
-
-  const pageCode =
-    page === "home"
-      ? "SYS"
-      : "END";
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [showSearch]);
 
   return (
-    <header className="topbar futuristic-topbar">
-      <div className="breadcrumbs futuristic-breadcrumbs">
-        <span className="breadcrumb-system">
-          TECHAIPILOT
-        </span>
-
-        <b>/</b>
-
-        <span className="breadcrumb-code">
-          {pageCode}
-        </span>
-
-        <b>/</b>
-
-        <strong>{title}</strong>
-
-        <span className="breadcrumb-status">
-          <i />
-          LIVE
-        </span>
-      </div>
-
-      <div className="top-actions futuristic-top-actions">
-        {page === "devices" && (
-          <div
-            className={`search futuristic-search ${
-              isSearchFocused
-                ? "search-focused"
-                : ""
-            }`}
-          >
-              <span
-              className="search-icon"
-              aria-hidden="true"
-            >
-              ⌕
-            </span>
-
-            <input
-              type="text"
-              value={query}
-              onChange={(event) =>
-                onQueryChange(
-                  event.target.value,
-                )
-              }
-              onFocus={() =>
-                setIsSearchFocused(true)
-              }
-              onBlur={() =>
-                setIsSearchFocused(false)
-              }
-              placeholder="Search devices..."
-              aria-label="Search devices"
-            />
-
-            <span className="search-scan-line" />
-
-            <span className="search-shortcut">
-              Ctrl K
-            </span>
-          </div>
-        )}
-
-        <div className="top-system-clock">
-          <span>LOCAL TIME</span>
-
-          <strong>
-            {clock || "--:--:--"}
-          </strong>
-        </div>
-
-        <button
-          type="button"
-          className="topbar-logout-button"
-          onClick={onLogout}
-          aria-label="Log out"
+    <header className="tpa-topbar">
+      <button
+        type="button"
+        className="tpa-icon-btn tpa-menu-btn"
+        onClick={onOpenNav}
+        aria-label="Open navigation"
+        aria-controls="tpa-sidebar"
+      >
+        <svg
+          aria-hidden="true"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
         >
-          <span aria-hidden="true">↪</span>
-          LOG OUT
-        </button>
-      </div>
+          <path d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
+      </button>
+
+      <p className="tpa-crumbs">
+        <span>Workspace</span>
+        <span aria-hidden="true">/</span>
+        <strong>{title}</strong>
+      </p>
+
+      {showSearch && (
+        <label className="tpa-search">
+          <svg
+            aria-hidden="true"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+          <span className="tpa-sr-only">Search devices</span>
+          <input
+            ref={searchRef}
+            type="search"
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.currentTarget.blur();
+              }
+            }}
+            placeholder="Search devices"
+          />
+          <kbd>Ctrl K</kbd>
+        </label>
+      )}
     </header>
   );
 }

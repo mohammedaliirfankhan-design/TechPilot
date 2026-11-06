@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import type { ReactNode } from "react";
 
 type Page = "home" | "devices" | "network-security";
 
 type SidebarProps = {
   page: Page;
   email: string;
+  mobileOpen: boolean;
+  onCloseMobile: () => void;
   onNavigate: (page: Page) => void;
   onLogout: () => void;
 };
@@ -12,249 +15,176 @@ type SidebarProps = {
 type NavigationItem = {
   key: Page;
   label: string;
-  icon: string;
-  code: string;
+  icon: ReactNode;
 };
 
-const navigation: NavigationItem[] = [
+const NAVIGATION: NavigationItem[] = [
   {
     key: "home",
     label: "Home",
-    icon: "⌂",
-    code: "SYS",
+    icon: (
+      <>
+        <path d="M3 10.5 12 3l9 7.5" />
+        <path d="M5 9.5V21h14V9.5" />
+      </>
+    ),
   },
   {
     key: "devices",
     label: "Devices",
-    icon: "▣",
-    code: "END",
+    icon: (
+      <>
+        <rect x="3" y="4" width="18" height="12" rx="2" />
+        <path d="M8 20h8" />
+        <path d="M12 16v4" />
+      </>
+    ),
   },
   {
     key: "network-security",
-    label: "Network Security",
-    icon: "🔒",
-    code: "NET",
-  }
+    label: "Network security",
+    icon: (
+      <>
+        <path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z" />
+        <path d="m9 12 2 2 4-4" />
+      </>
+    ),
+  },
 ];
+
+function Icon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {children}
+    </svg>
+  );
+}
 
 function Sidebar({
   page,
   email,
+  mobileOpen,
+  onCloseMobile,
   onNavigate,
   onLogout,
 }: SidebarProps) {
-  const [open, setOpen] = useState(false);
-
+  // Escape closes the mobile drawer; lock page scroll while it is open.
   useEffect(() => {
-    if (!open) {
-      document.body.style.overflow = "";
+    if (!mobileOpen) {
       return;
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setOpen(false);
+        onCloseMobile();
       }
     };
 
-    document.addEventListener(
-      "keydown",
-      handleKeyDown,
-    );
-
+    document.addEventListener("keydown", handleKeyDown);
     document.body.style.overflow = "hidden";
 
     return () => {
-      document.removeEventListener(
-        "keydown",
-        handleKeyDown,
-      );
-
+      document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "";
     };
-  }, [open]);
+  }, [mobileOpen, onCloseMobile]);
 
   const handleNavigate = (nextPage: Page) => {
     onNavigate(nextPage);
-    setOpen(false);
+    onCloseMobile();
   };
 
-  const handleLogout = () => {
-    setOpen(false);
-    onLogout();
-  };
+  const initials = email.slice(0, 2).toUpperCase();
 
   return (
     <>
-      {!open && (
+      {mobileOpen && (
         <button
           type="button"
-          className="sidebar-menu-button"
-          onClick={() => setOpen(true)}
-          aria-label="Open navigation"
-          aria-expanded={false}
-          aria-controls="TECHAIPILOT-sidebar"
-        >
-          <span />
-          <span />
-          <span />
-        </button>
-      )}
-
-      {open && (
-        <button
-          type="button"
-          className="sidebar-backdrop visible"
-          onClick={() => setOpen(false)}
+          className="tpa-backdrop"
+          onClick={onCloseMobile}
           aria-label="Close navigation"
         />
       )}
 
       <aside
-        id="TECHAIPILOT-sidebar"
-        className={`sidebar futuristic-sidebar ${
-          open
-            ? "sidebar-open"
-            : "sidebar-closed"
-        }`}
+        id="tpa-sidebar"
+        className={`tpa-sidebar ${mobileOpen ? "is-open" : ""}`}
         aria-label="Primary navigation"
-        aria-hidden={!open}
       >
-        <div className="brand futuristic-brand">
+        <div className="tpa-sidebar-top">
           <button
             type="button"
-            className="brand-button"
-            onClick={() =>
-              handleNavigate("home")
-            }
-            aria-label="Go to TechAIPILOT home"
+            className="tpa-brand"
+            onClick={() => handleNavigate("home")}
+            aria-label="TechAIPILOT home"
           >
-            <div
-              className="brand-mark futuristic-brand-mark"
-              aria-hidden="true"
-            >
-              <span>TA</span>
-              <i />
-            </div>
-
-            <div className="brand-copy">
-              <strong>TECHAIPILOT</strong>
-              <span>REMOTE SUPPORT</span>
-            </div>
+            <span className="tpa-brand-mark" aria-hidden="true">
+              <span />
+            </span>
+            <span className="tpa-brand-name">TechAIPILOT</span>
           </button>
 
-          {open && (
-            <button
-              type="button"
-              className="sidebar-close-button"
-              onClick={() => setOpen(false)}
-              aria-label="Close navigation"
-            >
-              ×
-            </button>
-          )}
-
-          <div className="brand-status">
-            <span />
-            ONLINE
-          </div>
+          <button
+            type="button"
+            className="tpa-icon-btn tpa-sidebar-close"
+            onClick={onCloseMobile}
+            aria-label="Close navigation"
+          >
+            <Icon>
+              <path d="M6 6l12 12M18 6 6 18" />
+            </Icon>
+          </button>
         </div>
 
-        <div className="workspace-label">
-          <span>WORKSPACE</span>
-          <i />
-        </div>
+        <nav className="tpa-nav" aria-label="Workspace">
+          <p className="tpa-nav-label">Workspace</p>
 
-        <nav
-          className="navigation futuristic-navigation"
-          aria-label="Workspace navigation"
-        >
-          {navigation.map((item) => {
-            const isActive =
-              page === item.key;
+          {NAVIGATION.map((item) => {
+            const active = page === item.key;
 
             return (
               <button
                 key={item.key}
                 type="button"
-                className={`nav-item futuristic-nav-item ${
-                  isActive ? "active" : ""
-                }`}
-                onClick={() =>
-                  handleNavigate(item.key)
-                }
-                aria-current={
-                  isActive
-                    ? "page"
-                    : undefined
-                }
+                className={`tpa-nav-item ${active ? "is-active" : ""}`}
+                onClick={() => handleNavigate(item.key)}
+                aria-current={active ? "page" : undefined}
               >
-                <span className="nav-icon">
-                  {item.icon}
-                </span>
-
-                <span className="nav-label-group">
-                  <span className="nav-label">
-                    {item.label}
-                  </span>
-                </span>
-
-                <span className="nav-code">
-                  {item.code}
-                </span>
-
-                <span
-                  className="nav-active-line"
-                  aria-hidden="true"
-                />
+                <Icon>{item.icon}</Icon>
+                <span>{item.label}</span>
               </button>
             );
           })}
         </nav>
 
-        <div className="sidebar-live-panel">
-          <div className="sidebar-live-header">
-            <span>CONNECTION</span>
-            <i />
+        <div className="tpa-sidebar-bottom">
+          <div className="tpa-account">
+            <span className="tpa-avatar" aria-hidden="true">
+              {initials}
+            </span>
+            <span className="tpa-account-email" title={email}>
+              {email}
+            </span>
           </div>
 
-          <div className="sidebar-live-core">
-            <span className="status-dot" />
-
-            <div>
-              <strong>
-                Remote support ready
-              </strong>
-
-              <span>
-                TechAIPILOT workspace online
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="sidebar-bottom">
-          <div className="profile futuristic-profile">
-            <div className="avatar futuristic-avatar">
-              {email
-                .slice(0, 2)
-                .toUpperCase()}
-            </div>
-
-            <div className="profile-copy">
-              <strong>Account</strong>
-
-              <span>{email}</span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            className="sidebar-logout-button"
-            onClick={handleLogout}
-          >
-            <span>↪</span>
-            LOG OUT
+          <button type="button" className="tpa-signout" onClick={onLogout}>
+            <Icon>
+              <path d="M15 4h4v16h-4" />
+              <path d="M10 8l-4 4 4 4" />
+              <path d="M6 12h10" />
+            </Icon>
+            Sign out
           </button>
         </div>
       </aside>
