@@ -1,282 +1,354 @@
+import "../tokens.css";
+import "./landing.css";
+
 type LandingProps = {
   onGetStarted: () => void;
   onLogin: () => void;
 };
 
-function Landing({
-  onGetStarted,
-  onLogin,
-}: LandingProps) {
+const CAPABILITIES = [
+  {
+    title: "Observe",
+    text:
+      "CPU, memory and disk telemetry from every enrolled device, plus firewall state, RDP exposure, unexpected listeners and suspicious outbound connections.",
+    icon: (
+      <path d="M3 12h4l3-8 4 16 3-8h4" />
+    ),
+  },
+  {
+    title: "Fix",
+    text:
+      "Run authorised PowerShell or CMD commands on the endpoint while the employee keeps working. Output comes straight back to your browser.",
+    icon: (
+      <>
+        <path d="M4 17l6-5-6-5" />
+        <path d="M12 19h8" />
+      </>
+    ),
+  },
+  {
+    title: "Take over",
+    text:
+      "Full remote screen with mouse, keyboard and scroll. The stream adapts to the network, so a slow link lowers the frame rate instead of adding delay.",
+    icon: (
+      <>
+        <rect x="3" y="4" width="18" height="12" rx="2" />
+        <path d="M8 20h8" />
+        <path d="M12 16v4" />
+      </>
+    ),
+  },
+];
+
+const STEPS = [
+  {
+    title: "Enroll with a code",
+    text: "Create a one-time code in the console. The installer ties the device to your organisation.",
+  },
+  {
+    title: "Read the signal",
+    text: "Health and security findings show up on the device page before anyone calls you.",
+  },
+  {
+    title: "Fix from the shell",
+    text: "Most fixes are a command away. No screen takeover, no interrupted meeting.",
+  },
+  {
+    title: "Take over if needed",
+    text: "Open a live session for the cases that really need hands on the screen.",
+  },
+];
+
+const TRUST = [
+  {
+    title: "Organisation-scoped enrollment",
+    text: "Devices join only through one-time codes issued from your console.",
+  },
+  {
+    title: "Credentials per device",
+    text: "Each agent gets its own token. Revoking one device leaves the rest untouched.",
+  },
+  {
+    title: "Sessions end cleanly",
+    text: "Ending a session from the console stops the stream and releases control on the endpoint.",
+  },
+  {
+    title: "Read-only security checks",
+    text: "Firewall and network checks observe and report. They never change settings on their own.",
+  },
+];
+
+const STACK = [
+  { label: "Endpoint", value: "Windows agent" },
+  { label: "Console", value: "Any modern browser" },
+  { label: "API", value: "FastAPI service" },
+  { label: "Data", value: "PostgreSQL" },
+];
+
+
+function Landing({ onGetStarted, onLogin }: LandingProps) {
   return (
-    <div className="landing-page">
-      <div
-        className="landing-background-grid"
-        aria-hidden="true"
-      />
+    <div className="tpl">
+      <a className="tpl-skip" href="#tpl-main">
+        Skip to content
+      </a>
 
-      <div
-        className="landing-glow landing-glow-one"
-        aria-hidden="true"
-      />
+      {/* ================= NAV ================= */}
+      <header className="tpl-header">
+        <div className="tpl-container tpl-nav">
+          <a className="tpl-brand" href="#top" aria-label="TechAIPILOT home">
+            <span className="tpl-brand-mark" aria-hidden="true">
+              <span />
+            </span>
+            <span className="tpl-brand-name">TechAIPILOT</span>
+          </a>
 
-      <div
-        className="landing-glow landing-glow-two"
-        aria-hidden="true"
-      />
+          <nav className="tpl-nav-links" aria-label="Main">
+            <a href="#product">Product</a>
+            <a href="#how">How it works</a>
+            <a href="#security">Security</a>
+            <a href="#deploy">Deployment</a>
+          </nav>
 
-      <nav className="landing-nav">
-        <div className="landing-logo">
-          <div className="landing-logo-mark">
-            TP
-          </div>
-
-          <div>
-            <strong>TECHAIPILOT</strong>
-            <span>SECURE REMOTE SUPPORT</span>
+          <div className="tpl-nav-actions">
+            <button type="button" className="tpl-btn tpl-btn-ghost" onClick={onLogin}>
+              Sign in
+            </button>
+            <button type="button" className="tpl-btn tpl-btn-primary" onClick={onGetStarted}>
+              Get started
+            </button>
           </div>
         </div>
+      </header>
 
-        <div className="landing-nav-actions">
-          <button
-            type="button"
-            className="landing-login-button"
-            onClick={onLogin}
-          >
-            Sign In
-          </button>
+      <main id="tpl-main">
+        {/* ================= HERO ================= */}
+        <section id="top" className="tpl-container tpl-hero">
+          <p className="tpl-kicker">
+            <span className="tpl-dot" aria-hidden="true" />
+            Remote support for IT teams
+          </p>
 
-          <button
-            type="button"
-            className="landing-nav-cta"
-            onClick={onGetStarted}
-          >
-            Get Started
-          </button>
-        </div>
-      </nav>
+          <h1>See the problem before you take the screen.</h1>
 
-      <main className="landing-main">
-        <section className="landing-hero">
-          <div className="landing-hero-copy">
-            <div className="landing-eyebrow">
-              <span className="landing-eyebrow-dot" />
-              INTELLIGENT ENDPOINT OPERATIONS
+          <p className="tpl-lead">
+            Endpoint health, security findings, a remote shell and full remote
+            control in one browser console. Start with the signal. Take over
+            only when you need to.
+          </p>
+
+          <div className="tpl-hero-actions">
+            <button type="button" className="tpl-btn tpl-btn-primary tpl-btn-lg" onClick={onGetStarted}>
+              Enroll your first device
+            </button>
+            <a className="tpl-btn tpl-btn-outline tpl-btn-lg" href="#how">
+              See how it works
+            </a>
+          </div>
+        </section>
+
+        {/* ================= PRODUCT PREVIEW ================= */}
+        <section className="tpl-container tpl-preview-wrap" aria-label="Product preview">
+          <div className="tpl-preview">
+            <div className="tpl-preview-bar">
+              <div className="tpl-preview-title">
+                <strong>FIN-LAPTOP-0412</strong>
+                <span className="tpl-muted">Session 31</span>
+                <span className="tpl-live">
+                  <span className="tpl-live-dot" aria-hidden="true" />
+                  Live · 42 ms · 20 fps
+                </span>
+              </div>
+
+              <div className="tpl-preview-tools" aria-hidden="true">
+                <span className="tpl-tool">Ctrl+Alt+Del</span>
+                <span className="tpl-tool">Fullscreen</span>
+                <span className="tpl-tool tpl-tool-danger">End session</span>
+              </div>
             </div>
 
-            <h1>
-              Remote Support.
-              <br />
-              <span>Intelligent by Design.</span>
-            </h1>
+            <div className="tpl-preview-body">
+              <div className="tpl-screen-col">
+                <div className="tpl-screen" aria-hidden="true">
+                  <div className="tpl-screen-desktop">
+                    <div className="tpl-screen-side">
+                      <i style={{ width: "70%" }} />
+                      <i style={{ width: "55%" }} />
+                      <i style={{ width: "62%" }} />
+                      <i style={{ width: "48%" }} />
+                    </div>
+                    <div className="tpl-screen-main">
+                      <i className="tpl-screen-heading" />
+                      <i style={{ width: "85%" }} />
+                      <i style={{ width: "78%" }} />
+                      <i style={{ width: "64%" }} />
+                    </div>
+                  </div>
+                  <div className="tpl-screen-taskbar" />
+                </div>
+                <p className="tpl-caption">
+                  Remote screen. Mouse, keyboard and scroll go straight to the endpoint.
+                </p>
+              </div>
 
-            <p>
-              Securely connect, monitor, diagnose, and
-              remotely support your endpoints from
-              anywhere with TechAIPILOT.
+              <aside className="tpl-panel" aria-label="Device health and findings">
+                <h2 className="tpl-panel-label">Device health</h2>
+                <div className="tpl-metrics">
+                  <div className="tpl-metric">
+                    <span>CPU</span>
+                    <strong>34%</strong>
+                  </div>
+                  <div className="tpl-metric">
+                    <span>Memory</span>
+                    <strong className="tpl-warn">88%</strong>
+                  </div>
+                  <div className="tpl-metric">
+                    <span>Disk</span>
+                    <strong>61%</strong>
+                  </div>
+                </div>
+
+                <h2 className="tpl-panel-label">Security findings</h2>
+                <div className="tpl-finding tpl-finding-high">
+                  <span>Firewall off on Public</span>
+                  <span>High</span>
+                </div>
+                <div className="tpl-finding tpl-finding-medium">
+                  <span>RDP on port 3389</span>
+                  <span>Medium</span>
+                </div>
+
+                <div className="tpl-shell">
+                  <div>
+                    <span className="tpl-shell-prompt">PS&gt;</span> Get-NetFirewallProfile
+                  </div>
+                  <div className="tpl-muted">Public  Enabled: False</div>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </section>
+
+        {/* ================= CAPABILITIES ================= */}
+        <section id="product" className="tpl-band">
+          <div className="tpl-container tpl-section">
+            <h2 className="tpl-h2">Three ways to help, from the same console.</h2>
+            <p className="tpl-sub">
+              Most support tools start and end with the screen. TechAIPILOT
+              gives you the quieter options first, so you interrupt the
+              employee only when it actually helps.
             </p>
 
-            <div className="landing-hero-actions">
-              <button
-                type="button"
-                className="landing-primary-button"
-                onClick={onGetStarted}
-              >
-                Get Started
-                <span>→</span>
-              </button>
-
-              <button
-                type="button"
-                className="landing-secondary-button"
-                onClick={onLogin}
-              >
-                Sign In
-              </button>
-            </div>
-
-            <div className="landing-trust-line">
-              <span className="pulse-dot" />
-              SECURE REMOTE ACCESS
-              <span className="landing-divider" />
-              REAL-TIME ENDPOINT VISIBILITY
-            </div>
-          </div>
-
-          <div
-            className="landing-visual"
-            aria-hidden="true"
-          >
-            <div className="landing-orbit landing-orbit-one" />
-            <div className="landing-orbit landing-orbit-two" />
-
-            <div className="landing-core">
-              <div className="landing-core-inner">
-                <span>TP</span>
-                <small>CONNECTED</small>
-              </div>
-            </div>
-
-            <div className="landing-node landing-node-one">
-              <span />
-              DEVICE
-            </div>
-
-            <div className="landing-node landing-node-two">
-              <span />
-              SESSION
-            </div>
-
-            <div className="landing-node landing-node-three">
-              <span />
-              TELEMETRY
-            </div>
-
-            <div className="landing-connection landing-connection-one" />
-            <div className="landing-connection landing-connection-two" />
-            <div className="landing-connection landing-connection-three" />
-          </div>
-        </section>
-
-        <section className="landing-capabilities">
-          <div className="landing-section-heading">
-            <span>THE TECHAIPILOT PLATFORM</span>
-            <h2>
-              Everything you need to support
-              <br />
-              connected endpoints.
-            </h2>
-          </div>
-
-          <div className="landing-capability-grid">
-            <article className="landing-capability-card">
-              <div className="landing-card-number">
-                01
-              </div>
-
-              <h3>Connect</h3>
-
-              <p>
-                Deploy the lightweight TechAIPILOT
-                Agent and securely bring endpoints
-                into your workspace.
-              </p>
-            </article>
-
-            <article className="landing-capability-card">
-              <div className="landing-card-number">
-                02
-              </div>
-
-              <h3>Observe</h3>
-
-              <p>
-                See connected endpoints, system
-                information, status, and operational
-                telemetry from one interface.
-              </p>
-            </article>
-
-            <article className="landing-capability-card">
-              <div className="landing-card-number">
-                03
-              </div>
-
-              <h3>Support</h3>
-
-              <p>
-                Start a controlled remote session and
-                interact with the endpoint when support
-                is required.
-              </p>
-            </article>
-          </div>
-        </section>
-
-        <section className="landing-how-it-works">
-          <div className="landing-section-heading">
-            <span>HOW IT WORKS</span>
-            <h2>
-              From installation to
-              <br />
-              remote support.
-            </h2>
-          </div>
-
-          <div className="landing-steps">
-            <div className="landing-step">
-              <span>01</span>
-              <strong>Create your account</strong>
-              <p>
-                Create a secure TechAIPILOT workspace
-                for your endpoints.
-              </p>
-            </div>
-
-            <div className="landing-step">
-              <span>02</span>
-              <strong>Install the Agent</strong>
-              <p>
-                Install TechAIPILOT on the endpoint
-                you want to support.
-              </p>
-            </div>
-
-            <div className="landing-step">
-              <span>03</span>
-              <strong>Connect your device</strong>
-              <p>
-                Your endpoint appears in your device
-                inventory once connected.
-              </p>
-            </div>
-
-            <div className="landing-step">
-              <span>04</span>
-              <strong>Start supporting</strong>
-              <p>
-                Launch a remote session whenever
-                hands-on support is required.
-              </p>
+            <div className="tpl-cards">
+              {CAPABILITIES.map((item) => (
+                <article key={item.title} className="tpl-card">
+                  <svg
+                    aria-hidden="true"
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    {item.icon}
+                  </svg>
+                  <h3>{item.title}</h3>
+                  <p>{item.text}</p>
+                </article>
+              ))}
             </div>
           </div>
         </section>
 
-        <section className="landing-final-cta">
-          <div>
-            <span>READY WHEN YOU ARE</span>
+        {/* ================= HOW IT WORKS ================= */}
+        <section id="how" className="tpl-container tpl-section tpl-section-tight">
+          <h2 className="tpl-h2">From enrollment to fixed, in four steps.</h2>
 
-            <h2>
-              Take control of your
-              <br />
-              remote support workflow.
-            </h2>
+          <ol className="tpl-steps">
+            {STEPS.map((step, index) => (
+              <li key={step.title} className="tpl-step">
+                <span className="tpl-step-num">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <h3>{step.title}</h3>
+                <p>{step.text}</p>
+              </li>
+            ))}
+          </ol>
+        </section>
 
-            <p>
-              Connect your first endpoint with
-              TechAIPILOT.
+        {/* ================= SECURITY ================= */}
+        <section id="security" className="tpl-band tpl-band-raised">
+          <div className="tpl-container tpl-section tpl-split">
+            <div className="tpl-split-intro">
+              <h2 className="tpl-h2">Built for the people who have to approve it.</h2>
+              <p className="tpl-sub">
+                Remote access touches every employee's screen. TechAIPILOT
+                keeps control with your organisation, not with whoever has a
+                session ID.
+              </p>
+            </div>
+
+            <div className="tpl-trust">
+              {TRUST.map((item) => (
+                <div key={item.title}>
+                  <h3>{item.title}</h3>
+                  <p>{item.text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ================= DEPLOYMENT ================= */}
+        <section id="deploy" className="tpl-container tpl-section tpl-split tpl-split-center">
+          <div className="tpl-split-intro">
+            <h2 className="tpl-h2">Run it where your data has to live.</h2>
+            <p className="tpl-sub">
+              The console and API are a standard web app with a PostgreSQL
+              database. Use a hosted instance, or run it on your own servers
+              so screen streams and telemetry never leave your network.
             </p>
           </div>
 
-          <button
-            type="button"
-            className="landing-primary-button"
-            onClick={onGetStarted}
-          >
-            Create Account
-            <span>→</span>
-          </button>
+          <dl className="tpl-stack">
+            {STACK.map((item) => (
+              <div key={item.label} className="tpl-stack-item">
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        {/* ================= CTA ================= */}
+        <section className="tpl-container tpl-cta-wrap">
+          <div className="tpl-cta">
+            <div>
+              <h2>Enroll one device and see its health in minutes.</h2>
+              <p>Create your workspace, generate an enrollment code, run the installer.</p>
+            </div>
+
+            <div className="tpl-cta-actions">
+              <button type="button" className="tpl-btn tpl-btn-outline tpl-btn-lg" onClick={onLogin}>
+                Sign in
+              </button>
+              <button type="button" className="tpl-btn tpl-btn-primary tpl-btn-lg" onClick={onGetStarted}>
+                Create workspace
+              </button>
+            </div>
+          </div>
         </section>
       </main>
 
-      <footer className="landing-footer">
-        <div>
-          <strong>TECHAIPILOT</strong>
-          <span>Secure IT Remote Support</span>
+      <footer className="tpl-footer">
+        <div className="tpl-container tpl-footer-inner">
+          <span>© {new Date().getFullYear()} TechAIPILOT</span>
+          <span>Secure remote support for Windows endpoints</span>
         </div>
-
-        <span>
-          © 2026 TechAIPILOT
-        </span>
       </footer>
     </div>
   );

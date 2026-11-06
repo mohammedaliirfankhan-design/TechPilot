@@ -1,0 +1,56 @@
+/* =========================================================
+   TechAIPILOT design tokens (Direction B: refined dark)
+
+   Shared by the landing page now and the app shell next.
+   Fonts are loaded from index.html.
+   ========================================================= */
+
+:root {
+  /* Surfaces */
+  --tp-bg: #0b1118;
+  --tp-surface: #111a24;
+  --tp-raised: #172230;
+  --tp-sunken: #070b10;
+  --tp-line: #243344;
+  --tp-line-soft: #1e2b3a;
+  --tp-line-strong: #2e3e52;
+
+  /* Text (all pass 4.5:1 on --tp-bg and --tp-surface) */
+  --tp-text: #e7edf3;
+  --tp-text-soft: #a9b6c3;
+  --tp-text-muted: #9aa8b6;
+
+  /* Accent: the "online" status green */
+  --tp-accent: #3fc28f;
+  --tp-accent-hover: #5fd3a5;
+  --tp-accent-ink: #06140e;
+  --tp-accent-soft: #12301f;
+  --tp-accent-text: #7fe0b8;
+
+  /* Status */
+  --tp-warn: #f0b44c;
+  --tp-warn-text: #f3c77a;
+  --tp-warn-bg: #2a2213;
+  --tp-warn-line: #4a3b1e;
+
+  --tp-danger: #f07167;
+  --tp-danger-text: #f5a39c;
+  --tp-danger-bg: #2a1517;
+  --tp-danger-line: #4a2226;
+  --tp-danger-solid: #c2413a;
+
+  /* Type */
+  --tp-font: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --tp-font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  /* Shape */
+  --tp-radius-sm: 8px;
+  --tp-radius: 10px;
+  --tp-radius-md: 14px;
+  --tp-radius-lg: 16px;
+  --tp-radius-xl: 20px;
+
+  /* Layout */
+  --tp-content-max: 1200px;
+  --tp-gutter: 32px;
+}
