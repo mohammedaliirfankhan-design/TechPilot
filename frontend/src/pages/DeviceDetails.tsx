@@ -3,8 +3,6 @@ import {
   useState,
 } from "react";
 
-import ScrollReveal from "../components/ScrollReveal";
-
 import {
   closeShellSession,
   createRemoteSession,
@@ -18,31 +16,37 @@ import {
   type ShellType,
 } from "../api";
 
+import {
+  formatDateTime,
+  isOlderVersion,
+} from "../lib/agentVersion";
+
+import "../pages.css";
+
 type DeviceDetailsProps = {
   deviceId: string;
   token: string;
   onBack: () => void;
 };
 
-function DetailItem({
-  label,
-  value,
-}: {
-  label: string;
-  value:
-    | string
-    | number
-    | null
-    | undefined;
-}) {
+function BackButton({ onBack }: { onBack: () => void }) {
   return (
-    <div className="clean-detail-item">
-      <span>{label}</span>
-
-      <strong>
-        {value ?? "Not reported"}
-      </strong>
-    </div>
+    <button type="button" className="tpp-back" onClick={onBack}>
+      <svg
+        aria-hidden="true"
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="m15 6-6 6 6 6" />
+      </svg>
+      All devices
+    </button>
   );
 }
 
@@ -51,46 +55,25 @@ function DeviceDetails({
   onBack,
   token,
 }: DeviceDetailsProps) {
-  const [device, setDevice] =
-    useState<Agent | null>(null);
+  const [device, setDevice] = useState<Agent | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const [loading, setLoading] =
-    useState(true);
+  /* ================= REMOTE SCREEN ================= */
 
-  /* =========================================================
-     REMOTE SCREEN
-     ========================================================= */
+  const [startingSession, setStartingSession] = useState(false);
+  const [sessionError, setSessionError] = useState("");
 
-  const [startingSession, setStartingSession] =
-    useState(false);
+  /* ================= REMOTE SHELL ================= */
 
-  /* =========================================================
-     REMOTE SHELL
-     ========================================================= */
-
-  const [shellType, setShellType] =
-    useState<ShellType>("POWERSHELL");
-
-  const [shellSession, setShellSession] =
-    useState<ShellSession | null>(null);
-
-  const [openingShell, setOpeningShell] =
-    useState(false);
-
-  const [closingShell, setClosingShell] =
-    useState(false);
-
-  const [command, setCommand] =
-    useState("");
-
-  const [executingCommand, setExecutingCommand] =
-    useState(false);
-
-  const [shellOutput, setShellOutput] =
-    useState("");
-
-  const [shellError, setShellError] =
-    useState("");
+  const [shellType, setShellType] = useState<ShellType>("POWERSHELL");
+  const [shellSession, setShellSession] = useState<ShellSession | null>(null);
+  const [openingShell, setOpeningShell] = useState(false);
+  const [closingShell, setClosingShell] = useState(false);
+  const [command, setCommand] = useState("");
+  const [lastCommand, setLastCommand] = useState("");
+  const [executingCommand, setExecutingCommand] = useState(false);
+  const [shellOutput, setShellOutput] = useState("");
+  const [shellError, setShellError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -99,26 +82,17 @@ function DeviceDetails({
       try {
         setLoading(true);
 
-        const agents =
-          await getAgents(token);
+        const agents = await getAgents(token);
 
-        const matchedAgent =
-          agents.find(
-            (agent) =>
-              agent.device_id ===
-              deviceId,
-          );
+        const matchedAgent = agents.find(
+          (agent) => agent.device_id === deviceId,
+        );
 
         if (!cancelled) {
-          setDevice(
-            matchedAgent ?? null,
-          );
+          setDevice(matchedAgent ?? null);
         }
       } catch (error) {
-        console.error(
-          "[DEVICE] Failed to load agent:",
-          error,
-        );
+        console.error("[DEVICE] Failed to load agent:", error);
 
         if (!cancelled) {
           setDevice(null);
@@ -138,8 +112,7 @@ function DeviceDetails({
   }, [deviceId, token]);
 
   /* =========================================================
-     REMOTE SCREEN
-     DO NOT MODIFY THE EXISTING REMOTE FLOW
+     REMOTE SCREEN (same flow as before; errors now inline)
      ========================================================= */
 
   const startRemoteView = async () => {
@@ -149,40 +122,19 @@ function DeviceDetails({
 
     try {
       setStartingSession(true);
+      setSessionError("");
 
-      console.log(
-        "[REMOTE] Creating session for:",
-        device.device_id,
-      );
+      const session = await createRemoteSession(device.device_id, token);
 
-      const session =
-        await createRemoteSession(
-          device.device_id,
-          token,
-        );
+      const remoteUrl = `/?remote_session=${encodeURIComponent(
+        String(session.session_id),
+      )}`;
 
-      console.log(
-        "[REMOTE] Session created:",
-        session,
-      );
-
-      const remoteUrl =
-        `/?remote_session=${encodeURIComponent(
-          String(session.session_id),
-        )}`;
-
-      window.open(
-        remoteUrl,
-        "_blank",
-        "noopener,noreferrer",
-      );
+      window.open(remoteUrl, "_blank", "noopener,noreferrer");
     } catch (error) {
-      console.error(
-        "[REMOTE] Failed to start session:",
-        error,
-      );
+      console.error("[REMOTE] Failed to start session:", error);
 
-      window.alert(
+      setSessionError(
         error instanceof Error
           ? error.message
           : "Failed to start remote session.",
@@ -192,116 +144,66 @@ function DeviceDetails({
     }
   };
 
-  /* =========================================================
-     OPEN REMOTE SHELL
-     ========================================================= */
+  /* ================= OPEN REMOTE SHELL ================= */
 
   const openShell = async () => {
-  if (!device || openingShell) {
-    return;
-  }
+    if (!device || openingShell) {
+      return;
+    }
 
-  try {
-    setOpeningShell(true);
-    setShellError("");
-    setShellOutput("");
+    try {
+      setOpeningShell(true);
+      setShellError("");
+      setShellOutput("");
+      setLastCommand("");
 
-    const session =
-      await createShellSession(
+      const session = await createShellSession(
         device.device_id,
         shellType,
         token,
       );
 
-    setShellSession(session);
+      setShellSession(session);
 
-    console.log(
-      "[SHELL] Session created:",
-      session,
-    );
+      // The agent accepts the session asynchronously; poll until ACTIVE.
+      const maxAttempts = 15;
+      const pollDelayMs = 1000;
 
-    /*
-     * The backend initially returns REQUESTED.
-     * The Agent polls for pending sessions and
-     * accepts the session asynchronously.
-     *
-     * Poll the backend until the session becomes
-     * ACTIVE so the UI reflects the real state.
-     */
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, pollDelayMs));
 
-    const maxAttempts = 15;
-    const pollDelayMs = 1000;
-
-    for (
-      let attempt = 0;
-      attempt < maxAttempts;
-      attempt += 1
-    ) {
-      await new Promise((resolve) =>
-        window.setTimeout(
-          resolve,
-          pollDelayMs,
-        ),
-      );
-
-      try {
-        const updatedSession =
-          await getShellSession(
+        try {
+          const updatedSession = await getShellSession(
             session.session_id,
             token,
           );
 
-        setShellSession(updatedSession);
+          setShellSession(updatedSession);
 
-        console.log(
-          "[SHELL] Session status:",
-          updatedSession.status,
-        );
-
-        if (
-          updatedSession.status === "ACTIVE"
-        ) {
-          break;
+          if (
+            updatedSession.status === "ACTIVE" ||
+            updatedSession.status === "ENDED" ||
+            updatedSession.status === "CLOSED"
+          ) {
+            break;
+          }
+        } catch (statusError) {
+          // A single failed status check does not mean the session is gone.
+          console.error("[SHELL] Failed to refresh session status:", statusError);
         }
-
-        if (
-          updatedSession.status === "ENDED" ||
-          updatedSession.status === "CLOSED"
-        ) {
-          break;
-        }
-      } catch (statusError) {
-        console.error(
-          "[SHELL] Failed to refresh session status:",
-          statusError,
-        );
-
-        /*
-         * Do not immediately destroy the session
-         * state if a single status request fails.
-         * The session itself may still be valid.
-         */
       }
+    } catch (error) {
+      console.error("[SHELL] Failed to create shell session:", error);
+
+      setShellError(
+        error instanceof Error ? error.message : "Failed to open remote shell.",
+      );
+    } finally {
+      setOpeningShell(false);
     }
-  } catch (error) {
-    console.error(
-      "[SHELL] Failed to create shell session:",
-      error,
-    );
+  };
 
-    setShellError(
-      error instanceof Error
-        ? error.message
-        : "Failed to open remote shell.",
-    );
-  } finally {
-    setOpeningShell(false);
-  }
-};
-
-  /* =========================================================
-     CLOSE REMOTE SHELL
-     ========================================================= */
+  /* ================= CLOSE REMOTE SHELL ================= */
 
   const closeShell = async () => {
     if (!shellSession || closingShell) {
@@ -312,94 +214,54 @@ function DeviceDetails({
       setClosingShell(true);
       setShellError("");
 
-      await closeShellSession(
-        shellSession.session_id,
-        token,
-      );
+      await closeShellSession(shellSession.session_id, token);
 
       setShellSession(null);
       setCommand("");
+      setLastCommand("");
       setShellOutput("");
-
-      console.log(
-        "[SHELL] Session closed:",
-        shellSession.session_id,
-      );
     } catch (error) {
-      console.error(
-        "[SHELL] Failed to close shell session:",
-        error,
-      );
+      console.error("[SHELL] Failed to close shell session:", error);
 
       setShellError(
-        error instanceof Error
-          ? error.message
-          : "Failed to close shell session.",
+        error instanceof Error ? error.message : "Failed to close shell session.",
       );
     } finally {
       setClosingShell(false);
     }
   };
 
-  /* =========================================================
-     EXECUTE COMMAND
-     ========================================================= */
+  /* ================= EXECUTE COMMAND ================= */
 
   const executeCommand = async () => {
-    if (
-      !shellSession ||
-      !command.trim() ||
-      executingCommand
-    ) {
+    if (!shellSession || !command.trim() || executingCommand) {
       return;
     }
+
+    const submitted = command;
 
     try {
       setExecutingCommand(true);
       setShellError("");
       setShellOutput("");
+      setLastCommand(submitted);
 
-      const createdCommand =
-        await createShellCommand(
-          shellSession.session_id,
-          command,
-          token,
-        );
-
-      console.log(
-        "[SHELL] Command created:",
-        createdCommand,
+      const createdCommand = await createShellCommand(
+        shellSession.session_id,
+        submitted,
+        token,
       );
 
-      /*
-       * The Agent polls the backend for pending
-       * commands, executes the command, and submits
-       * the result. Poll until the command reaches
-       * a terminal state.
-       */
-
+      // The agent polls for commands, runs them and posts the result.
       const maxAttempts = 120;
       const pollDelayMs = 1000;
 
       let result = createdCommand;
 
-      for (
-        let attempt = 0;
-        attempt < maxAttempts;
-        attempt += 1
-      ) {
-        await new Promise((resolve) =>
-          window.setTimeout(
-            resolve,
-            pollDelayMs,
-          ),
-        );
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, pollDelayMs));
 
-        result =
-          await getShellCommand(
-            createdCommand.command_id,
-            token,
-          );
+        result = await getShellCommand(createdCommand.command_id, token);
 
         if (
           result.status === "COMPLETED" ||
@@ -416,7 +278,7 @@ function DeviceDetails({
         result.status !== "TIMEOUT"
       ) {
         setShellError(
-          "Command is still running. Refresh the command later to retrieve its result.",
+          "The command is still running. Its result was not available after 2 minutes.",
         );
       }
 
@@ -427,408 +289,276 @@ function DeviceDetails({
       }
 
       if (result.stderr) {
-        outputParts.push(
-          `[stderr]\n${result.stderr}`,
-        );
+        outputParts.push(`[stderr]\n${result.stderr}`);
       }
 
-      if (
-        result.exit_code !== null &&
-        result.exit_code !== undefined
-      ) {
-        outputParts.push(
-          `\n[exit code: ${result.exit_code}]`,
-        );
+      if (result.exit_code !== null && result.exit_code !== undefined) {
+        outputParts.push(`\n[exit code: ${result.exit_code}]`);
       }
 
       setShellOutput(
-        outputParts.join("\n") ||
-          "(Command completed with no output.)",
+        outputParts.join("\n") || "(Command completed with no output.)",
       );
 
       setCommand("");
     } catch (error) {
-      console.error(
-        "[SHELL] Command execution failed:",
-        error,
-      );
+      console.error("[SHELL] Command execution failed:", error);
 
       setShellError(
-        error instanceof Error
-          ? error.message
-          : "Failed to execute command.",
+        error instanceof Error ? error.message : "Failed to execute command.",
       );
     } finally {
       setExecutingCommand(false);
     }
   };
 
-  /* =========================================================
-     LOADING
-     ========================================================= */
+  /* ================= LOADING / NOT FOUND ================= */
 
   if (loading) {
     return (
-      <section className="glass-card device-details-empty futuristic-empty-state">
-        <div className="empty-icon">
-          ◌
-        </div>
-
-        <strong>
-          Loading endpoint...
-        </strong>
-
-        <p>
-          Loading TechAIPILOT device
-          information.
-        </p>
-      </section>
+      <div className="tpp">
+        <BackButton onBack={onBack} />
+        <p className="tpp-state">Loading device…</p>
+      </div>
     );
   }
-
-  /* =========================================================
-     DEVICE NOT FOUND
-     ========================================================= */
 
   if (!device) {
     return (
-      <section className="glass-card device-details-empty futuristic-empty-state">
-        <div className="empty-icon">
-          ⌁
+      <div className="tpp">
+        <BackButton onBack={onBack} />
+        <div className="tpp-card tpp-state">
+          <strong>Device not found.</strong>
+          <p>
+            It may have been removed, or it belongs to another organisation.
+          </p>
         </div>
-
-        <strong>
-          Device not found
-        </strong>
-
-        <p>
-          The selected endpoint could not
-          be found in the TechAIPILOT
-          inventory.
-        </p>
-
-        <button
-          type="button"
-          className="clean-device-back-button"
-          onClick={onBack}
-        >
-          ← BACK TO DEVICES
-        </button>
-      </section>
+      </div>
     );
   }
 
+  const prompt = shellSession?.shell_type === "CMD" ? "C:\\>" : "PS>";
+  const shellLabel =
+    shellSession?.shell_type === "CMD" ? "Command Prompt" : "PowerShell";
+  const shellActive = shellSession?.status === "ACTIVE";
+  const outdated = isOlderVersion(device.agent_version);
+
   return (
-    <div className="device-details-page">
+    <div className="tpp">
+      <BackButton onBack={onBack} />
 
-      {/* =====================================================
-          DEVICE HEADER
-          ===================================================== */}
+      {/* ================= DEVICE HEADER ================= */}
 
-      <ScrollReveal>
-        <section className="glass-card clean-device-header">
-          <div className="clean-device-heading">
-            <button
-              type="button"
-              className="clean-device-back-button"
-              onClick={onBack}
-            >
-              ← BACK
-            </button>
+      <section className="tpp-card tpp-device-head">
+        <div className="tpp-device-title">
+          <h2>{device.hostname}</h2>
+          <p className="tpp-muted">
+            {device.operating_system} {device.os_version} · Agent v
+            {device.agent_version}
+            {outdated && (
+              <span className="tpp-badge tpp-badge-warn">Update available</span>
+            )}
+          </p>
+          <p className="tpp-mono tpp-muted tpp-small">{device.device_id}</p>
+        </div>
 
-            <div>
-              <span className="eyebrow">
-                ENDPOINT
-              </span>
-
-              <h2>
-                {device.hostname}
-              </h2>
-
-              <p>
-                {device.operating_system}
-                {" · "}
-                {device.os_version}
-              </p>
-
-              <span className="clean-device-id">
-                {device.device_id}
-              </span>
-            </div>
-          </div>
-
-          <div className="clean-device-status">
-            <i />
-            REGISTERED
-          </div>
-        </section>
-      </ScrollReveal>
-
-      {/* =====================================================
-          REMOTE SCREEN
-          EXISTING FUNCTIONALITY PRESERVED
-          ===================================================== */}
-
-      <ScrollReveal delay={80}>
-        <section className="glass-card clean-remote-card">
-          <div className="clean-remote-copy">
-            <span className="eyebrow">
-              REMOTE OPERATIONS
-            </span>
-
-            <h3>
-              Remote Screen
-            </h3>
-
-            <p>
-              Establish a secure remote viewing
-              and control session with this
-              TechAIPILOT endpoint.
-            </p>
-          </div>
-
+        <div className="tpp-device-actions">
           <button
             type="button"
-            className="techpilot-primary-button remote-session-button"
+            className="tpa-btn tpa-btn-primary"
             onClick={startRemoteView}
             disabled={startingSession}
           >
-            <span>
-              {startingSession
-                ? "◌"
-                : "▶"}
-            </span>
-
-            {startingSession
-              ? "STARTING SESSION..."
-              : "START REMOTE SESSION"}
+            <svg
+              aria-hidden="true"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="4" width="18" height="12" rx="2" />
+              <path d="M8 20h8M12 16v4" />
+            </svg>
+            {startingSession ? "Starting session…" : "Start remote session"}
           </button>
-        </section>
-      </ScrollReveal>
+        </div>
 
-      {/* =====================================================
-          REMOTE SHELL
-          ===================================================== */}
+        {sessionError && (
+          <p className="tpp-inline-error" role="alert">
+            Couldn't start the remote session: {sessionError}
+          </p>
+        )}
+      </section>
 
-      <ScrollReveal delay={100}>
-        <section className="glass-card clean-remote-card">
-          <div className="clean-remote-copy">
-            <span className="eyebrow">
-              REMOTE OPERATIONS
-            </span>
+      <div className="tpp-grid">
+        {/* ================= REMOTE SHELL ================= */}
 
-            <h3>
-              Remote Shell
-            </h3>
+        <section className="tpp-card tpp-shell-card" aria-labelledby="tpp-shell-title">
+          <div className="tpp-card-head">
+            <div>
+              <h2 id="tpp-shell-title">Remote shell</h2>
+              <p className="tpp-muted tpp-small">
+                Run PowerShell or CMD commands without taking over the screen.
+              </p>
+            </div>
 
-            <p>
-              Execute authorized PowerShell
-              or CMD commands directly on this
-              TechAIPILOT endpoint.
-            </p>
+            {shellSession && (
+              <span
+                className={`tpp-badge ${
+                  shellActive ? "tpp-badge-ok" : "tpp-badge-neutral"
+                }`}
+              >
+                {shellActive ? "Connected" : shellSession.status.toLowerCase()}
+              </span>
+            )}
           </div>
 
           {!shellSession ? (
-            <div className="shell-launch-panel">
-              <label
-                className="shell-select-label"
-                htmlFor="shell-type"
-              >
-                SHELL
+            <div className="tpp-shell-launch">
+              <label className="tpp-field">
+                <span>Shell</span>
+                <select
+                  value={shellType}
+                  onChange={(event) =>
+                    setShellType(event.target.value as ShellType)
+                  }
+                >
+                  <option value="POWERSHELL">PowerShell</option>
+                  <option value="CMD">Command Prompt</option>
+                </select>
               </label>
-
-              <select
-                id="shell-type"
-                className="shell-type-select"
-                value={shellType}
-                onChange={(event) =>
-                  setShellType(
-                    event.target.value as ShellType,
-                  )
-                }
-              >
-                <option value="POWERSHELL">
-                  PowerShell
-                </option>
-
-                <option value="CMD">
-                  Command Prompt
-                </option>
-              </select>
 
               <button
                 type="button"
-                className="techpilot-primary-button remote-session-button"
+                className="tpa-btn tpp-btn-outline"
                 onClick={openShell}
                 disabled={openingShell}
               >
-                <span>
-                  {openingShell
-                    ? "◌"
-                    : "▶"}
-                </span>
-
-                {openingShell
-                  ? "OPENING SHELL..."
-                  : "OPEN REMOTE SHELL"}
+                {openingShell ? "Waiting for the agent…" : "Open shell"}
               </button>
             </div>
           ) : (
-            <div className="shell-console-panel">
-
-              <div className="shell-console-header">
-                <div>
-                  <span className="eyebrow">
-                    ACTIVE SHELL
-                  </span>
-
-                  <strong>
-                    {shellSession.shell_type ===
-                    "POWERSHELL"
-                      ? "PowerShell"
-                      : "Command Prompt"}
-                  </strong>
+            <>
+              <div className="tpp-terminal" aria-live="polite">
+                <div className="tpp-terminal-bar">
+                  <span>{shellLabel}</span>
+                  <span>{device.hostname}</span>
                 </div>
 
-                <span className="shell-status">
-                  {shellSession.status}
-                </span>
+                <pre>
+                  {lastCommand && (
+                    <span className="tpp-terminal-cmd">
+                      {prompt} {lastCommand}
+                      {"\n"}
+                    </span>
+                  )}
+                  {executingCommand
+                    ? "Running…"
+                    : shellOutput ||
+                      (shellActive
+                        ? "Type a command below and press Enter."
+                        : "Waiting for the agent to accept the shell…")}
+                </pre>
               </div>
 
-              <div className="shell-command-row">
+              <div className="tpp-command-row">
+                <span className="tpp-prompt" aria-hidden="true">
+                  {prompt}
+                </span>
+                <label className="tpa-sr-only" htmlFor="tpp-command">
+                  Command
+                </label>
                 <input
+                  id="tpp-command"
                   type="text"
-                  className="shell-command-input"
                   value={command}
-                  onChange={(event) =>
-                    setCommand(event.target.value)
-                  }
+                  onChange={(event) => setCommand(event.target.value)}
                   onKeyDown={(event) => {
-                    if (
-                      event.key === "Enter" &&
-                      !event.shiftKey
-                    ) {
+                    if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
                       void executeCommand();
                     }
                   }}
                   placeholder={
-                    shellSession.shell_type ===
-                    "POWERSHELL"
-                      ? "Enter PowerShell command..."
-                      : "Enter CMD command..."
+                    shellSession.shell_type === "POWERSHELL"
+                      ? "Get-Service Spooler"
+                      : "ipconfig /all"
                   }
+                  spellCheck={false}
+                  autoComplete="off"
                   disabled={executingCommand}
                 />
-
                 <button
                   type="button"
-                  className="techpilot-primary-button"
+                  className="tpa-btn tpa-btn-primary"
                   onClick={executeCommand}
-                  disabled={
-                    executingCommand ||
-                    !command.trim()
-                  }
+                  disabled={executingCommand || !command.trim()}
                 >
-                  {executingCommand
-                    ? "RUNNING..."
-                    : "EXECUTE"}
+                  {executingCommand ? "Running…" : "Run"}
                 </button>
               </div>
 
-              <div className="shell-output">
-                <div className="shell-output-label">
-                  OUTPUT
-                </div>
-
-                <pre>
-                  {executingCommand
-                    ? "Executing command..."
-                    : shellOutput ||
-                      "Command output will appear here."}
-                </pre>
-              </div>
-
-              {shellError && (
-                <div className="shell-error">
-                  {shellError}
-                </div>
-              )}
-
-              <div className="shell-console-actions">
+              <div className="tpp-shell-foot">
                 <button
                   type="button"
-                  className="TECHAIPILOT-secondary-button"
+                  className="tpa-btn tpp-btn-outline"
                   onClick={closeShell}
                   disabled={closingShell}
                 >
-                  {closingShell
-                    ? "CLOSING..."
-                    : "CLOSE SHELL"}
+                  {closingShell ? "Closing…" : "Close shell"}
                 </button>
               </div>
-            </div>
+            </>
           )}
 
-          {shellError && !shellSession && (
-            <div className="shell-error">
+          {shellError && (
+            <p className="tpp-inline-error" role="alert">
               {shellError}
-            </div>
+            </p>
           )}
         </section>
-      </ScrollReveal>
 
-      {/* =====================================================
-          DEVICE INFORMATION
-          ===================================================== */}
+        {/* ================= DEVICE INFORMATION ================= */}
 
-      <ScrollReveal delay={140}>
-        <section className="glass-card clean-information-card">
-          <div className="clean-section-heading">
-            <span className="eyebrow">
-              ENDPOINT INFORMATION
-            </span>
+        <section className="tpp-card" aria-labelledby="tpp-info-title">
+          <h2 id="tpp-info-title" className="tpp-card-title">
+            Device information
+          </h2>
 
-            <h3>
-              Device Information
-            </h3>
-          </div>
-
-          <div className="clean-details-grid">
-            <DetailItem
-              label="HOSTNAME"
-              value={device.hostname}
-            />
-
-            <DetailItem
-              label="DEVICE ID"
-              value={device.device_id}
-            />
-
-            <DetailItem
-              label="AGENT ID"
-              value={device.id}
-            />
-
-            <DetailItem
-              label="OPERATING SYSTEM"
-              value={`${device.operating_system} ${device.os_version}`}
-            />
-
-            <DetailItem
-              label="AGENT VERSION"
-              value={`v${device.agent_version}`}
-            />
-
-            <DetailItem
-              label="REGISTERED"
-              value={new Date(
-                device.registered_at,
-              ).toLocaleString()}
-            />
-          </div>
+          <dl className="tpp-info">
+            <div>
+              <dt>Hostname</dt>
+              <dd>{device.hostname}</dd>
+            </div>
+            <div>
+              <dt>Device ID</dt>
+              <dd className="tpp-mono">{device.device_id}</dd>
+            </div>
+            <div>
+              <dt>Agent ID</dt>
+              <dd>{device.id}</dd>
+            </div>
+            <div>
+              <dt>Operating system</dt>
+              <dd>
+                {device.operating_system} {device.os_version}
+              </dd>
+            </div>
+            <div>
+              <dt>Agent version</dt>
+              <dd>v{device.agent_version}</dd>
+            </div>
+            <div>
+              <dt>Enrolled</dt>
+              <dd>{formatDateTime(device.registered_at)}</dd>
+            </div>
+          </dl>
         </section>
-      </ScrollReveal>
+      </div>
     </div>
   );
 }

@@ -1,16 +1,24 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
-import ScrollReveal from "../components/ScrollReveal";
 import {
   createDeviceEnrollment,
   getAgents,
   type Agent,
   type DeviceEnrollmentResponse,
 } from "../api";
+
+import {
+  formatDate,
+  formatDateTime,
+  isOlderVersion,
+} from "../lib/agentVersion";
+
+import "../pages.css";
 
 type DevicesProps = {
   searchQuery?: string;
@@ -23,29 +31,21 @@ function Devices({
   token,
   onDeviceSelect,
 }: DevicesProps) {
-  const [agents, setAgents] =
-    useState<Agent[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [loading, setLoading] =
-    useState(true);
-
-  const [error, setError] =
-    useState<string | null>(null);
-
-  const [showEnrollment, setShowEnrollment] =
-    useState(false);
-
+  const [showEnrollment, setShowEnrollment] = useState(false);
   const [enrollment, setEnrollment] =
     useState<DeviceEnrollmentResponse | null>(null);
+  const [enrollmentLoading, setEnrollmentLoading] = useState(false);
+  const [enrollmentError, setEnrollmentError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const [enrollmentLoading, setEnrollmentLoading] =
-    useState(false);
+  const addButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLElement | null>(null);
 
-  const [enrollmentError, setEnrollmentError] =
-    useState<string | null>(null);
-
-  const [copied, setCopied] =
-    useState(false);
+  /* ================= LOAD DEVICES ================= */
 
   useEffect(() => {
     let cancelled = false;
@@ -63,9 +63,7 @@ function Devices({
       } catch (err) {
         if (!cancelled) {
           setError(
-            err instanceof Error
-              ? err.message
-              : "Failed to load devices.",
+            err instanceof Error ? err.message : "Failed to load devices.",
           );
         }
       } finally {
@@ -83,26 +81,27 @@ function Devices({
   }, [token]);
 
   const filteredAgents = useMemo(() => {
-    const query =
-      searchQuery.trim().toLowerCase();
+    const query = searchQuery.trim().toLowerCase();
+
+    const sorted = [...agents].sort((a, b) =>
+      a.hostname.localeCompare(b.hostname),
+    );
 
     if (!query) {
-      return agents;
+      return sorted;
     }
 
-    return agents.filter((agent) =>
+    return sorted.filter((agent) =>
       [
         agent.hostname,
         agent.device_id,
         agent.operating_system,
         agent.os_version,
-      ].some((value) =>
-        value
-          .toLowerCase()
-          .includes(query),
-      ),
+      ].some((value) => value.toLowerCase().includes(query)),
     );
   }, [agents, searchQuery]);
+
+  /* ================= ENROLLMENT ================= */
 
   async function handleCreateEnrollment() {
     try {
@@ -110,8 +109,7 @@ function Devices({
       setEnrollmentError(null);
       setCopied(false);
 
-      const data =
-        await createDeviceEnrollment(token);
+      const data = await createDeviceEnrollment(token);
 
       setEnrollment(data);
     } catch (err) {
@@ -139,6 +137,9 @@ function Devices({
     setEnrollment(null);
     setEnrollmentError(null);
     setCopied(false);
+
+    // Return focus to the button that opened the dialog.
+    window.setTimeout(() => addButtonRef.current?.focus(), 0);
   }
 
   async function handleCopyCode() {
@@ -147,9 +148,7 @@ function Devices({
     }
 
     try {
-      await navigator.clipboard.writeText(
-        enrollment.enrollment_code,
-      );
+      await navigator.clipboard.writeText(enrollment.enrollment_code);
 
       setCopied(true);
 
@@ -157,173 +156,167 @@ function Devices({
         setCopied(false);
       }, 2000);
     } catch {
-      setEnrollmentError(
-        "Unable to copy the enrollment code.",
-      );
+      setEnrollmentError("Unable to copy the enrollment code.");
     }
   }
 
+  // Escape closes the dialog; move focus into it when it opens.
+  useEffect(() => {
+    if (!showEnrollment) {
+      return;
+    }
+
+    dialogRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        handleCloseEnrollment();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [showEnrollment]);
+
+  /* ================= RENDER ================= */
+
   return (
-    <div className="devices-clean">
-      <ScrollReveal delay={0}>
-        <section className="devices-clean-header">
-          <div>
-            <span className="eyebrow">
-              ENDPOINT INVENTORY
-            </span>
+    <div className="tpp">
+      <div className="tpp-toolbar">
+        <p className="tpp-count">
+          {loading
+            ? "Loading devices…"
+            : searchQuery.trim()
+            ? `${filteredAgents.length} of ${agents.length} devices`
+            : `${agents.length} ${agents.length === 1 ? "device" : "devices"}`}
+        </p>
 
-            <h2>
-              Connected Devices
-            </h2>
+        <button
+          ref={addButtonRef}
+          type="button"
+          className="tpa-btn tpa-btn-primary"
+          onClick={handleOpenEnrollment}
+        >
+          <svg
+            aria-hidden="true"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          Add device
+        </button>
+      </div>
 
+      <section className="tpp-card tpp-card-flush" aria-label="Devices">
+        {loading && <p className="tpp-state">Loading devices…</p>}
+
+        {!loading && error && (
+          <div className="tpp-state tpp-state-error" role="alert">
+            <strong>Couldn't load devices.</strong>
+            <p>{error}</p>
+          </div>
+        )}
+
+        {!loading && !error && agents.length === 0 && (
+          <div className="tpp-state">
+            <strong>No devices yet.</strong>
             <p>
-              Select an endpoint to view its
-              details and start secure remote
-              support.
+              Choose <strong>Add device</strong> to create an enrollment code,
+              then run the installer on the PC.
             </p>
           </div>
+        )}
 
-          <div className="devices-header-actions">
-            <button
-              type="button"
-              className="devices-add-button"
-              onClick={handleOpenEnrollment}
-            >
-              <span>+</span>
-              ADD DEVICE
-            </button>
-
-            <div className="devices-count">
-              <span>REGISTERED</span>
-
-              <strong>
-                {agents.length
-                  .toString()
-                  .padStart(2, "0")}
-              </strong>
+        {!loading &&
+          !error &&
+          agents.length > 0 &&
+          filteredAgents.length === 0 && (
+            <div className="tpp-state">
+              <strong>No devices match "{searchQuery.trim()}".</strong>
+              <p>Try a hostname, device ID or Windows version.</p>
             </div>
+          )}
+
+        {!loading && !error && filteredAgents.length > 0 && (
+          <div className="tpp-table-wrap">
+            <table className="tpp-table">
+              <thead>
+                <tr>
+                  <th scope="col">Device</th>
+                  <th scope="col">Operating system</th>
+                  <th scope="col">Agent</th>
+                  <th scope="col">Enrolled</th>
+                  <th scope="col">
+                    <span className="tpa-sr-only">Open</span>
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredAgents.map((agent) => (
+                  <tr
+                    key={agent.id}
+                    className="tpp-row-link"
+                    onClick={() => onDeviceSelect?.(agent.device_id)}
+                  >
+                    <td>
+                      <button
+                        type="button"
+                        className="tpp-device"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDeviceSelect?.(agent.device_id);
+                        }}
+                      >
+                        <strong>{agent.hostname}</strong>
+                        <span>{agent.device_id}</span>
+                      </button>
+                    </td>
+                    <td>
+                      {agent.operating_system}{" "}
+                      <span className="tpp-muted">{agent.os_version}</span>
+                    </td>
+                    <td>
+                      <span className="tpp-mono">v{agent.agent_version}</span>
+                      {isOlderVersion(agent.agent_version) && (
+                        <span className="tpp-badge tpp-badge-warn">Update</span>
+                      )}
+                    </td>
+                    <td className="tpp-muted">{formatDate(agent.registered_at)}</td>
+                    <td className="tpp-chevron" aria-hidden="true">
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="m9 6 6 6-6 6" />
+                      </svg>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </section>
-      </ScrollReveal>
+        )}
+      </section>
 
-      <ScrollReveal delay={60}>
-        <section className="devices-list glass-card">
-          {loading && (
-            <div className="devices-empty">
-              <span className="devices-loading-dot" />
-
-              <strong>
-                Loading endpoints...
-              </strong>
-
-              <p>
-                Synchronizing with the
-                TechAIPILOT agent API.
-              </p>
-            </div>
-          )}
-
-          {!loading && error && (
-            <div className="devices-empty devices-error">
-              <strong>
-                Unable to load endpoints
-              </strong>
-
-              <p>{error}</p>
-            </div>
-          )}
-
-          {!loading &&
-            !error &&
-            filteredAgents.length === 0 && (
-              <div className="devices-empty">
-                <strong>
-                  No connected endpoints
-                </strong>
-
-                <p>
-                  No registered TechAIPILOT agents
-                  match your search.
-                </p>
-              </div>
-            )}
-
-          {!loading &&
-            !error &&
-            filteredAgents.map((agent) => (
-              <button
-                key={agent.id}
-                type="button"
-                className="device-list-item"
-                onClick={() =>
-                  onDeviceSelect?.(
-                    agent.device_id,
-                  )
-                }
-              >
-                <div className="device-list-status">
-                  <i />
-                </div>
-
-                <div className="device-list-main">
-                  <span className="device-list-eyebrow">
-                    ENDPOINT
-                  </span>
-
-                  <strong>
-                    {agent.hostname}
-                  </strong>
-
-                  <span className="device-list-id">
-                    {agent.device_id}
-                  </span>
-                </div>
-
-                <div className="device-list-meta">
-                  <span>
-                    OPERATING SYSTEM
-                  </span>
-
-                  <strong>
-                    {agent.operating_system}
-                  </strong>
-
-                  <small>
-                    {agent.os_version}
-                  </small>
-                </div>
-
-                <div className="device-list-meta">
-                  <span>
-                    AGENT
-                  </span>
-
-                  <strong>
-                    v{agent.agent_version}
-                  </strong>
-
-                  <small>
-                    Registered
-                  </small>
-                </div>
-
-                <div className="device-list-action">
-                  <span>
-                    REMOTE SUPPORT
-                  </span>
-
-                  <strong>
-                    OPEN →
-                  </strong>
-                </div>
-              </button>
-            ))}
-        </section>
-      </ScrollReveal>
+      {/* ================= ADD DEVICE DIALOG ================= */}
 
       {showEnrollment && (
         <div
-          className="device-enrollment-overlay"
+          className="tpp-overlay"
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
@@ -332,119 +325,94 @@ function Devices({
           }}
         >
           <section
-            className="device-enrollment-modal glass-card"
+            ref={dialogRef}
+            className="tpp-dialog"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="device-enrollment-title"
+            aria-labelledby="tpp-enroll-title"
+            tabIndex={-1}
           >
-            <div className="device-enrollment-header">
-              <div>
-                <span className="eyebrow">
-                  SECURE ONBOARDING
-                </span>
-
-                <h3 id="device-enrollment-title">
-                  Add a Device
-                </h3>
-              </div>
+            <div className="tpp-dialog-head">
+              <h2 id="tpp-enroll-title">Add a device</h2>
 
               <button
                 type="button"
-                className="device-enrollment-close"
+                className="tpa-icon-btn"
                 onClick={handleCloseEnrollment}
-                aria-label="Close add device dialog"
+                aria-label="Close"
               >
-                ×
+                <svg
+                  aria-hidden="true"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                >
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
               </button>
             </div>
 
             {enrollmentLoading && (
-              <div className="device-enrollment-state">
-                <span className="devices-loading-dot" />
+              <p className="tpp-state">Creating an enrollment code…</p>
+            )}
 
-                <strong>
-                  Generating enrollment code...
-                </strong>
-
-                <p>
-                  Creating a secure one-time
-                  onboarding credential.
-                </p>
+            {!enrollmentLoading && enrollmentError && (
+              <div className="tpp-state tpp-state-error" role="alert">
+                <strong>Couldn't create an enrollment code.</strong>
+                <p>{enrollmentError}</p>
+                <button
+                  type="button"
+                  className="tpa-btn tpa-btn-primary"
+                  onClick={() => void handleCreateEnrollment()}
+                >
+                  Try again
+                </button>
               </div>
             )}
 
-            {!enrollmentLoading &&
-              enrollmentError && (
-                <div className="device-enrollment-state devices-error">
-                  <strong>
-                    Unable to create enrollment code
-                  </strong>
+            {!enrollmentLoading && !enrollmentError && enrollment && (
+              <div className="tpp-enroll">
+                <ol className="tpp-enroll-steps">
+                  <li>Copy the code below.</li>
+                  <li>Run <strong>TechAIPILOTAgentSetup.exe</strong> on the PC.</li>
+                  <li>Paste the code when the installer asks for it.</li>
+                </ol>
 
-                  <p>
-                    {enrollmentError}
-                  </p>
+                <div className="tpp-code" aria-label="Enrollment code">
+                  {enrollment.enrollment_code}
+                </div>
 
+                <p className="tpp-muted tpp-small">
+                  Single use. Expires {formatDateTime(enrollment.expires_at)}.
+                  Don't share it outside your team.
+                </p>
+
+                <div className="tpp-dialog-actions">
                   <button
                     type="button"
-                    className="devices-add-button"
-                    onClick={() =>
-                      void handleCreateEnrollment()
-                    }
+                    className="tpa-btn tpp-btn-outline"
+                    onClick={handleCloseEnrollment}
                   >
-                    TRY AGAIN
+                    Done
+                  </button>
+                  <button
+                    type="button"
+                    className="tpa-btn tpa-btn-primary"
+                    onClick={() => void handleCopyCode()}
+                  >
+                    {copied ? "Copied" : "Copy code"}
                   </button>
                 </div>
-              )}
 
-            {!enrollmentLoading &&
-              !enrollmentError &&
-              enrollment && (
-                <div className="device-enrollment-content">
-                  <p>
-                    Enter this code during the
-                    device installation process.
-                    It can only be used once.
-                  </p>
-
-                  <div className="device-enrollment-code">
-                    {enrollment.enrollment_code}
-                  </div>
-
-                  <div className="device-enrollment-expiry">
-                    <span>EXPIRES</span>
-
-                    <strong>
-                      15 MINUTES
-                    </strong>
-                  </div>
-
-                  <div className="device-enrollment-actions">
-                    <button
-                      type="button"
-                      className="devices-copy-button"
-                      onClick={() =>
-                        void handleCopyCode()
-                      }
-                    >
-                      {copied
-                        ? "COPIED"
-                        : "COPY CODE"}
-                    </button>
-
-                    <button
-                      type="button"
-                      className="device-enrollment-done"
-                      onClick={handleCloseEnrollment}
-                    >
-                      DONE
-                    </button>
-                  </div>
-
-                  <small>
-                    Never share this code publicly.
-                  </small>
-                </div>
-              )}
+                <p className="tpa-sr-only" aria-live="polite">
+                  {copied ? "Enrollment code copied" : ""}
+                </p>
+              </div>
+            )}
           </section>
         </div>
       )}

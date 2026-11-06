@@ -1,0 +1,504 @@
+/* =========================================================
+   TechAIPILOT inner pages (Devices, Device detail, ...)
+   Prefix: "tpp-". Uses tokens.css; buttons from shell.css.
+   ========================================================= */
+
+.tpp {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.tpp h2 {
+  margin: 0;
+}
+
+.tpp p {
+  margin: 0;
+}
+
+.tpp-muted {
+  color: var(--tp-text-muted);
+}
+
+.tpp-small {
+  font-size: 13px;
+}
+
+.tpp-mono {
+  font-family: var(--tp-font-mono);
+  font-size: 13px;
+}
+
+/* ================= CARDS ================= */
+
+.tpp-card {
+  padding: 20px;
+  border: 1px solid var(--tp-line);
+  border-radius: var(--tp-radius-md);
+  background: var(--tp-surface);
+}
+
+.tpp-card-flush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.tpp-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.tpp-card-head h2,
+.tpp-card-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* ================= STATES ================= */
+
+.tpp-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 28px 20px;
+  color: var(--tp-text-soft);
+}
+
+.tpp-state strong {
+  color: var(--tp-text);
+}
+
+.tpp-state .tpa-btn {
+  margin-top: 8px;
+}
+
+.tpp-state-error strong {
+  color: var(--tp-danger-text);
+}
+
+.tpp-inline-error {
+  flex-basis: 100%;
+  margin-top: 12px !important;
+  padding: 10px 12px;
+  border: 1px solid var(--tp-danger-line);
+  border-radius: var(--tp-radius-sm);
+  background: var(--tp-danger-bg);
+  color: var(--tp-danger-text);
+  font-size: 14px;
+}
+
+/* ================= BADGES / BUTTONS ================= */
+
+.tpp-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tpp-badge-warn {
+  border-color: var(--tp-warn-line);
+  background: var(--tp-warn-bg);
+  color: var(--tp-warn-text);
+}
+
+.tpp-badge-ok {
+  background: var(--tp-accent-soft);
+  color: var(--tp-accent-text);
+}
+
+.tpp-badge-neutral {
+  border-color: var(--tp-line);
+  color: var(--tp-text-soft);
+  text-transform: capitalize;
+}
+
+.tpp-btn-outline {
+  border-color: var(--tp-line-strong);
+}
+
+.tpp-btn-outline:hover:not(:disabled) {
+  background: var(--tp-raised);
+}
+
+.tpp .tpa-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tpp-back {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--tp-text-soft);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tpp-back:hover {
+  color: var(--tp-text);
+}
+
+/* ================= DEVICES LIST ================= */
+
+.tpp-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tpp-count {
+  color: var(--tp-text-soft);
+  font-size: 14px;
+}
+
+.tpp-table-wrap {
+  overflow-x: auto;
+}
+
+.tpp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.tpp-table th {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--tp-line);
+  color: var(--tp-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tpp-table td {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--tp-line-soft);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.tpp-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.tpp-row-link {
+  cursor: pointer;
+}
+
+.tpp-row-link:hover {
+  background: var(--tp-raised);
+}
+
+.tpp-device {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--tp-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tpp-device strong {
+  font-weight: 600;
+}
+
+.tpp-device span {
+  color: var(--tp-text-muted);
+  font-family: var(--tp-font-mono);
+  font-size: 12px;
+}
+
+.tpp-row-link:hover .tpp-device strong {
+  color: var(--tp-accent-text);
+}
+
+.tpp-chevron {
+  width: 44px;
+  color: var(--tp-text-muted);
+  text-align: right;
+}
+
+/* ================= DIALOG ================= */
+
+.tpp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(3, 6, 10, 0.7);
+}
+
+.tpp-dialog {
+  width: min(460px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding: 24px;
+  border: 1px solid var(--tp-line);
+  border-radius: var(--tp-radius-lg);
+  background: var(--tp-surface);
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.7);
+}
+
+.tpp-dialog:focus {
+  outline: none;
+}
+
+.tpp-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.tpp-dialog-head h2 {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.tpp-dialog .tpp-state {
+  padding: 8px 0;
+}
+
+.tpp-enroll {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tpp-enroll-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--tp-text-soft);
+  font-size: 14px;
+}
+
+.tpp-code {
+  padding: 18px;
+  border: 1px dashed var(--tp-line-strong);
+  border-radius: var(--tp-radius);
+  background: var(--tp-sunken);
+  font-family: var(--tp-font-mono);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-align: center;
+  word-break: break-all;
+  user-select: all;
+}
+
+.tpp-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ================= DEVICE DETAIL ================= */
+
+.tpp-device-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.tpp-device-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tpp-device-title h2 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.tpp-device-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tpp-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.tpp-grid > .tpp-shell-card {
+  flex: 999 1 520px;
+  min-width: 0;
+}
+
+.tpp-grid > .tpp-card:not(.tpp-shell-card) {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.tpp-shell-launch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.tpp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--tp-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tpp-field select {
+  min-width: 200px;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--tp-line-strong);
+  border-radius: var(--tp-radius-sm);
+  background: var(--tp-raised);
+  color: var(--tp-text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.tpp-terminal {
+  overflow: hidden;
+  border: 1px solid var(--tp-line-soft);
+  border-radius: var(--tp-radius);
+  background: var(--tp-sunken);
+}
+
+.tpp-terminal-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--tp-line-soft);
+  color: var(--tp-text-muted);
+  font-size: 12px;
+}
+
+.tpp-terminal pre {
+  min-height: 180px;
+  max-height: 420px;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  color: #c9d4df;
+  font-family: var(--tp-font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tpp-terminal-cmd {
+  color: var(--tp-accent-text);
+}
+
+.tpp-command-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tpp-prompt {
+  color: var(--tp-accent-text);
+  font-family: var(--tp-font-mono);
+  font-size: 13px;
+}
+
+.tpp-command-row input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--tp-line-strong);
+  border-radius: var(--tp-radius-sm);
+  background: var(--tp-sunken);
+  color: var(--tp-text);
+  font-family: var(--tp-font-mono);
+  font-size: 13px;
+}
+
+.tpp-command-row input:focus {
+  border-color: var(--tp-accent);
+  outline: none;
+}
+
+.tpp-command-row input::placeholder {
+  color: var(--tp-text-muted);
+}
+
+.tpp-shell-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.tpp-info {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 12px 0 0;
+}
+
+.tpp-info dt {
+  color: var(--tp-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tpp-info dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+  word-break: break-all;
+}
+
+@media (max-width: 640px) {
+  .tpp-dialog {
+    padding: 20px;
+  }
+
+  .tpp-code {
+    font-size: 18px;
+  }
+}
