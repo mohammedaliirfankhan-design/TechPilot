@@ -1,0 +1,41 @@
+/* =========================================================
+   TechAIPILOT global base styles
+   Replaces the old styles.css. Page styles live in:
+   landing.css, shell.css, pages.css, session.css, auth.css
+   ========================================================= */
+
+:root {
+  color-scheme: dark;
+  background: var(--tp-bg);
+  color: var(--tp-text);
+  font-family: var(--tp-font);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background: var(--tp-bg);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
