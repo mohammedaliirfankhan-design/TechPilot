@@ -1,25 +1,23 @@
-import ctypes
 import json
+import socket
 import time
+import urllib.error
 import urllib.request
 from urllib.parse import quote
 
 import websocket
-import pyautogui
 
 from techpilot_agent.config import AGENT_TOKEN
 
+from . import input_win
+from .flow import get_link
 
-pyautogui.FAILSAFE = True
-pyautogui.PAUSE = 0
 
+ENDED_STATUSES = ("ENDED", "CLOSED", "CANCELLED", "TERMINATED")
 
-# =============================================================
-# WINDOWS MOUSE CONSTANTS
-# =============================================================
-
-MOUSEEVENTF_WHEEL = 0x0800
-WHEEL_DELTA = 120
+# Set to True only while debugging. Printing every mouse move to a
+# Windows console is slow and was adding visible input delay.
+VERBOSE = False
 
 
 class RemoteControlClient:
@@ -28,667 +26,306 @@ class RemoteControlClient:
         self,
         server_url: str,
         session_id: int,
+        **_ignored,
     ):
-        print(
-            f"[CONTROL] LOADED CONTROL MODULE FROM: {__file__}",
-            flush=True
-        )
-
-        self.server_url = server_url
+        self.server_url = server_url.rstrip("/")
         self.session_id = session_id
 
         self.websocket = None
         self.running = True
-
-        # -----------------------------------------------------
-        # IMPORTANT:
-        # A terminal connection failure means this session
-        # must NOT enter another reconnect loop.
-        # -----------------------------------------------------
-
         self.terminal_failure = False
 
+        self.link = get_link(session_id)
+
     # =========================================================
-    # BUILD WEBSOCKET URL
+    # URLS
     # =========================================================
 
     def _build_ws_url(self):
-
         ws_url = (
             self.server_url
             .replace("http://", "ws://")
             .replace("https://", "wss://")
         )
-
-        token = quote(
-            AGENT_TOKEN,
-            safe="",
-        )
+        token = quote(AGENT_TOKEN, safe="")
 
         return (
-            f"{ws_url}"
-            f"/api/v1/remote/sessions/"
-            f"{self.session_id}/agent-control"
-            f"?token={token}"
+            f"{ws_url}/api/v1/remote/sessions/"
+            f"{self.session_id}/agent-control?token={token}"
         )
-
-    # =========================================================
-    # BUILD SESSION URL
-    # =========================================================
 
     def _build_session_url(self):
-
-        return (
-            f"{self.server_url}"
-            f"/api/v1/remote/sessions/"
-            f"{self.session_id}"
-        )
+        return f"{self.server_url}/api/v1/remote/sessions/{self.session_id}"
 
     # =========================================================
-    # GET SESSION STATUS
+    # SESSION STATUS
     # =========================================================
 
     def _get_session_status(self):
-
-        url = self._build_session_url()
-
         try:
-
             request = urllib.request.Request(
-                url,
+                self._build_session_url(),
                 method="GET",
             )
+            with urllib.request.urlopen(request, timeout=8) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            return data.get("status")
 
-            with urllib.request.urlopen(
-                request,
-                timeout=5,
-            ) as response:
+        except urllib.error.HTTPError as e:
+            if e.code in (403, 404):
+                return "ENDED"
+            return None
 
-                data = json.loads(
-                    response.read().decode("utf-8")
-                )
-
-            status = data.get("status")
-
-            print(
-                f"[CONTROL] Session "
-                f"{self.session_id} status: "
-                f"{status}"
-            )
-
-            return status
-
-        except Exception as e:
-
-            status_code = getattr(
-                e,
-                "status_code",
-                None,
-            )
-
-            error_text = str(e).lower()
-
-            is_403 = (
-                status_code == 403
-                or "403 forbidden" in error_text
-                or "handshake status 403" in error_text
-            )
-
-            if is_403:
-
-                print(
-                    f"[CONTROL] TERMINAL FAILURE: "
-                    f"session {self.session_id} "
-                    f"was rejected with HTTP 403.",
-                    flush=True,
-                )
-
-                self.terminal_failure = True
-                self.running = False
-                self.websocket = None
-
-                return False
-
-            print(
-                f"[CONTROL] WebSocket connection "
-                f"failed: "
-                f"{type(e).__name__}: {e}"
-            )
-
-            self.websocket = None
-
-            return False
-
-    # =========================================================
-    # SESSION ENDED
-    # =========================================================
+        except Exception:
+            return None
 
     def _session_has_ended(self):
-
-        status = self._get_session_status()
-
-        return status == "ENDED"
+        return self._get_session_status() in ENDED_STATUSES
 
     # =========================================================
     # CONNECT
     # =========================================================
 
     def connect(self):
-
         if self.terminal_failure:
-
-            print(
-                f"[CONTROL] Connection blocked: "
-                f"session {self.session_id} "
-                f"has a terminal failure."
-            )
-
             return False
 
         url = self._build_ws_url()
-
-        print(
-            f"[CONTROL] Connecting to: "
-            f"{url.split('?')[0]}"
-        )
+        print(f"[CONTROL] Connecting to: {url.split('?')[0]}", flush=True)
 
         try:
-
             self.websocket = websocket.create_connection(
                 url,
+                # recv() wakes up once a second so we notice shutdown;
+                # it also lets websocket-client answer server pings.
                 timeout=1,
-                ping_interval=20,
-                ping_timeout=10,
+                sockopt=((socket.IPPROTO_TCP, socket.TCP_NODELAY, 1),),
             )
-
-            print(
-                f"[CONTROL] Control channel "
-                f"connected for session "
-                f"{self.session_id}"
-            )
-
-            return True
 
         except websocket.WebSocketBadStatusException as e:
-
-            status_code = getattr(
-                e,
-                "status_code",
-                None,
-            )
-
+            status_code = getattr(e, "status_code", None)
             print(
-                f"[CONTROL] WebSocket handshake "
-                f"rejected for session "
-                f"{self.session_id}: "
-                f"HTTP {status_code}"
+                f"[CONTROL] Handshake rejected for session "
+                f"{self.session_id}: HTTP {status_code}",
+                flush=True,
             )
-
             if status_code == 403:
-
-                print(
-                    f"[CONTROL] TERMINAL FAILURE: "
-                    f"session {self.session_id} "
-                    f"was rejected with 403."
-                )
-
                 self.terminal_failure = True
                 self.running = False
-
-                self.websocket = None
-
-                return False
-
             self.websocket = None
-
             return False
 
         except Exception as e:
-
-            error_text = str(e).lower()
-
+            text = str(e).lower()
             print(
-                f"[CONTROL] WebSocket connection "
-                f"failed: "
+                f"[CONTROL] WebSocket connection failed: "
                 f"{type(e).__name__}: {e}",
                 flush=True,
             )
-
-            if (
-                "403 forbidden" in error_text
-                or "handshake status 403" in error_text
-                or "status 403" in error_text
-            ):
-
-                print(
-                    f"[CONTROL] TERMINAL FAILURE: "
-                    f"session {self.session_id} "
-                    f"was rejected with HTTP 403.",
-                    flush=True,
-                )
-
+            if "403" in text and "forbidden" in text:
                 self.terminal_failure = True
                 self.running = False
-                self.websocket = None
-
-                return False
-
             self.websocket = None
-
             return False
 
-    # =========================================================
-    # REMOTE SCROLL
-    # =========================================================
-
-    def _native_scroll(self, amount: int):
-
         print(
-            f"[CONTROL] >>> ENTERED _native_scroll() amount={amount}",
-            flush=True
+            f"[CONTROL] Control channel connected for session {self.session_id}",
+            flush=True,
         )
+        return True
 
-        try:
+    # =========================================================
+    # COORDINATES
+    # =========================================================
 
-            amount = int(amount)
+    def _screen_point(self, command):
+        """
+        Map viewer coordinates to absolute physical screen pixels.
 
-            if amount == 0:
+        Preferred: normalised nx/ny (0..1) relative to the streamed
+        monitor. Fallback: x/y in streamed-frame pixels.
+        """
+        monitor = self.link.monitor
 
-                print(
-                    "[CONTROL] >>> Scroll amount is zero",
-                    flush=True
-                )
+        if monitor is None:
+            if "x" in command and "y" in command:
+                return int(command["x"]), int(command["y"])
+            return None
 
-                return
-
-            print(
-                f"[CONTROL] >>> About to execute Windows scroll "
-                f"amount={amount}",
-                flush=True
+        if "nx" in command and "ny" in command:
+            nx = min(max(float(command["nx"]), 0.0), 1.0)
+            ny = min(max(float(command["ny"]), 0.0), 1.0)
+        elif "x" in command and "y" in command:
+            frame_w, frame_h = self.link.frame_size or (
+                monitor["width"],
+                monitor["height"],
             )
+            nx = float(command["x"]) / max(1, frame_w - 1)
+            ny = float(command["y"]) / max(1, frame_h - 1)
+        else:
+            return None
 
-            SCROLL_MULTIPLIER = 10
-
-            wheel_amount = (
-                amount
-                * 120
-                * SCROLL_MULTIPLIER
-            )
-
-            print(
-                f"[CONTROL] >>> wheel_amount={wheel_amount}",
-                flush=True
-            )
-
-            ctypes.windll.user32.mouse_event(
-                MOUSEEVENTF_WHEEL,
-                0,
-                0,
-                wheel_amount,
-                0,
-            )
-
-            print(
-                "[CONTROL] >>> Windows mouse_event() completed",
-                flush=True
-            )
-
-        except Exception as e:
-
-            print(
-                f"[CONTROL] >>> NATIVE SCROLL ERROR: "
-                f"{type(e).__name__}: {e}",
-                flush=True
-            )
+        x = monitor["left"] + round(nx * (monitor["width"] - 1))
+        y = monitor["top"] + round(ny * (monitor["height"] - 1))
+        return x, y
 
     # =========================================================
     # EXECUTE COMMAND
     # =========================================================
 
-    def execute_command(
-        self,
-        command: dict
-    ):
+    def execute_command(self, command: dict):
+        kind = command.get("type")
 
-        command_type = command.get(
-            "type"
-        )
-
-        if command_type == "mouse_move":
-
-            x = int(command["x"])
-            y = int(command["y"])
-
-            pyautogui.moveTo(
-                x,
-                y,
-                duration=0
-            )
-
-            print(
-                f"[CONTROL] Mouse move: "
-                f"({x}, {y})"
-            )
-
+        # ---- flow control messages from the viewer ----
+        if kind == "frame_ack":
+            self.link.on_ack(int(command.get("seq", 0)))
             return
 
-        elif command_type == "mouse_click":
+        if kind == "viewer_ready":
+            self.link.on_viewer_ready()
+            return
 
-            x = int(command["x"])
-            y = int(command["y"])
+        if VERBOSE:
+            print(f"[CONTROL] {command}", flush=True)
 
-            button = command.get(
-                "button",
-                "left"
-            )
+        # ---- mouse ----
+        if kind == "mouse_move":
+            point = self._screen_point(command)
+            if point:
+                input_win.mouse_move(*point)
+            return
 
-            clicks = int(
-                command.get(
-                    "clicks",
-                    1
-                )
-            )
-
-            pyautogui.click(
+        if kind in ("mouse_down", "mouse_up"):
+            point = self._screen_point(command)
+            x, y = point if point else (None, None)
+            input_win.mouse_button(
+                command.get("button", "left"),
+                down=(kind == "mouse_down"),
                 x=x,
                 y=y,
-                clicks=clicks,
-                button=button
             )
+            return
 
-            print(
-                f"[CONTROL] Mouse click: "
-                f"{button} at ({x}, {y})"
+        if kind == "mouse_click":
+            point = self._screen_point(command)
+            x, y = point if point else (None, None)
+            input_win.mouse_click(
+                command.get("button", "left"),
+                x=x,
+                y=y,
+                clicks=int(command.get("clicks", 1)),
             )
+            return
 
-        elif command_type == "mouse_down":
+        if kind == "scroll":
+            if "delta" in command:
+                delta = int(command["delta"])
+            else:
+                # legacy: amount in notches
+                delta = int(command.get("amount", 0)) * 120
 
-            button = command.get(
-                "button",
-                "left"
-            )
+            delta = max(-2400, min(2400, delta))
+            input_win.scroll(delta)
 
-            pyautogui.mouseDown(
-                button=button
-            )
+            hdelta = int(command.get("hdelta", 0) or 0)
+            if hdelta:
+                input_win.scroll(max(-2400, min(2400, hdelta)), horizontal=True)
+            return
 
-            print(
-                f"[CONTROL] Mouse down: "
-                f"{button}"
-            )
+        # ---- keyboard ----
+        if kind == "type_text":
+            input_win.type_text(command.get("text", ""))
+            return
 
-        elif command_type == "mouse_up":
+        if kind == "key_press":
+            input_win.key_press(command["key"])
+            return
 
-            button = command.get(
-                "button",
-                "left"
-            )
+        if kind == "hotkey":
+            input_win.hotkey(command["keys"])
+            return
 
-            pyautogui.mouseUp(
-                button=button
-            )
-
-            print(
-                f"[CONTROL] Mouse up: "
-                f"{button}"
-            )
-
-        elif command_type == "key_press":
-
-            key = command["key"]
-
-            pyautogui.press(
-                key
-            )
-
-            print(
-                f"[CONTROL] Key press: "
-                f"{key}"
-            )
-
-        elif command_type == "hotkey":
-
-            keys = command["keys"]
-
-            pyautogui.hotkey(
-                *keys
-            )
-
-            print(
-                f"[CONTROL] Hotkey: "
-                f"{keys}"
-            )
-
-        elif command_type == "type_text":
-
-            text = command["text"]
-
-            pyautogui.write(
-                text,
-                interval=0.02
-            )
-
-            print(
-                "[CONTROL] Text typed"
-            )
-
-        elif command_type == "scroll":
-
-            amount = int(
-                command.get(
-                    "amount",
-                    1
-                )
-            )
-
-            if amount == 0:
-                return
-
-            print(
-                f"[CONTROL] Scroll command received: "
-                f"amount={amount}",
-                flush=True
-            )
-
-            self._native_scroll(
-                amount
-            )
-
-        else:
-
-            print(
-                f"[CONTROL] Unknown command: "
-                f"{command_type}"
-            )
+        print(f"[CONTROL] Unknown command: {kind}", flush=True)
 
     # =========================================================
     # LISTEN
     # =========================================================
 
     def listen(self):
+        reconnect_delay = 0.5
 
-        while self.running:
-
-            if self.terminal_failure:
-                break
+        while self.running and not self.terminal_failure:
 
             if self.websocket is None:
-
-                connected = self.connect()
-
-                if not connected:
-
-                    if self.terminal_failure:
-
-                        print(
-                            f"[CONTROL] Session "
-                            f"{self.session_id} "
-                            f"control stopped permanently."
-                        )
-
-                        break
-
-                    if self._session_has_ended():
-
-                        print(
-                            f"[CONTROL] Session "
-                            f"{self.session_id} "
-                            f"has ended. "
-                            f"Stopping control client."
-                        )
-
-                        self.running = False
-
-                        break
-
-                    print(
-                        "[CONTROL] Retrying connection "
-                        "in 2 seconds..."
-                    )
-
-                    time.sleep(2)
-
+                if self.connect():
+                    reconnect_delay = 0.5
                     continue
 
-            try:
-
-                message = self.websocket.recv()
-
-                if message is None:
-                    continue
-
-                print(
-                    f"[CONTROL] Message received: "
-                    f"{message}"
-                )
-
-                try:
-
-                    command = json.loads(
-                        message
-                    )
-
+                if self.terminal_failure or self._session_has_ended():
                     print(
-                        f"[CONTROL] Parsed command: "
-                        f"{command}"
+                        f"[CONTROL] Session {self.session_id} has ended. "
+                        f"Stopping control client.",
+                        flush=True,
                     )
-
-                    print(
-                        f"[CONTROL] Executing command: "
-                        f"{command.get('type')}"
-                    )
-
-                    self.execute_command(
-                        command
-                    )
-
-                except json.JSONDecodeError:
-
-                    print(
-                        "[CONTROL] Received "
-                        "invalid JSON"
-                    )
-
-                except Exception as e:
-
-                    print(
-                        f"[CONTROL] Command execution "
-                        f"failed: "
-                        f"{type(e).__name__}: {e}"
-                    )
-
-            except websocket.WebSocketTimeoutException:
-
-                if not self.running:
                     break
 
+                time.sleep(reconnect_delay)
+                reconnect_delay = min(reconnect_delay * 2, 5.0)
                 continue
 
-            except websocket.WebSocketConnectionClosedException:
+            try:
+                message = self.websocket.recv()
 
-                print(
-                    "[CONTROL] Control WebSocket closed"
-                )
-
-                self._reset_connection()
-
-                if self._session_has_ended():
-
-                    print(
-                        f"[CONTROL] Session "
-                        f"{self.session_id} "
-                        f"has ended. "
-                        f"Stopping control client."
-                    )
-
-                    self.running = False
-
-                    break
-
-                print(
-                    "[CONTROL] Reconnecting "
-                    "in 2 seconds..."
-                )
-
-                time.sleep(2)
+            except websocket.WebSocketTimeoutException:
+                continue
 
             except Exception as e:
-
                 print(
-                    f"[CONTROL] Control channel error: "
-                    f"{type(e).__name__}: {e}"
+                    f"[CONTROL] Control channel closed: "
+                    f"{type(e).__name__}: {e}",
+                    flush=True,
                 )
-
                 self._reset_connection()
+                continue
 
-                if self._session_has_ended():
+            if not message:
+                continue
 
-                    print(
-                        f"[CONTROL] Session "
-                        f"{self.session_id} "
-                        f"has ended. "
-                        f"Stopping control client."
-                    )
+            try:
+                command = json.loads(message)
+            except (ValueError, TypeError):
+                continue
 
-                    self.running = False
+            if not isinstance(command, dict):
+                continue
 
-                    break
-
+            try:
+                self.execute_command(command)
+            except Exception as e:
+                # A single bad command must never kill the channel.
                 print(
-                    "[CONTROL] Reconnecting "
-                    "in 2 seconds..."
+                    f"[CONTROL] Command {command.get('type')} failed: "
+                    f"{type(e).__name__}: {e}",
+                    flush=True,
                 )
-
-                time.sleep(2)
 
         self.close()
 
     # =========================================================
-    # RESET CONNECTION
+    # RESET / CLOSE
     # =========================================================
 
     def _reset_connection(self):
+        ws = self.websocket
+        self.websocket = None
 
-        if self.websocket:
-
+        if ws is not None:
             try:
-                self.websocket.close()
-
+                ws.close()
             except Exception:
                 pass
 
-        self.websocket = None
-
-    # =========================================================
-    # CLOSE
-    # =========================================================
-
     def close(self):
-
         self.running = False
-
         self._reset_connection()
-
-        print(
-            "[CONTROL] Control client closed"
-        )
+        print("[CONTROL] Control client closed", flush=True)

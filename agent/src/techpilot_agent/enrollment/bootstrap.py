@@ -1,3 +1,4 @@
+
 import argparse
 import json
 import os
@@ -6,10 +7,13 @@ import sys
 
 import requests
 
-from techpilot_agent.identity.device_id import get_device_id
+from techpilot_agent.identity.device_id import (
+    generate_device_id,
+    save_device_id,
+)
 
 
-AGENT_VERSION = "1.0.0"
+AGENT_VERSION = "1.1.0"
 
 
 def write_enrollment_result(
@@ -43,7 +47,8 @@ def complete_enrollment(
 ) -> None:
     backend_url = backend_url.rstrip("/")
 
-    device_id = get_device_id()
+    # Generate a candidate identity without modifying the existing one.
+    device_id = generate_device_id()
 
     payload = {
         "enrollment_code": enrollment_code.strip().upper(),
@@ -53,6 +58,9 @@ def complete_enrollment(
         "os_version": platform.version(),
         "agent_version": AGENT_VERSION,
     }
+
+    print("Connecting to TechAIPILOT backend...")
+    print(f"Registering new device identity: {device_id}")
 
     response = requests.post(
         f"{backend_url}/api/v1/device-enrollments/complete",
@@ -96,6 +104,10 @@ def complete_enrollment(
         raise RuntimeError(
             "The server returned an invalid Agent credential."
         )
+
+    # Only replace the saved identity after the backend confirms enrollment.
+    # The previous identity is automatically backed up by save_device_id().
+    save_device_id(device_id)
 
     write_enrollment_result(
         result_file=result_file,

@@ -49,3 +49,7 @@ Thumbs.db
 *.pem
 *.key
 *.crt
+
+# TechAIPILOT Agent versioned build artifacts
+agent/build-*/
+agent/dist-*/

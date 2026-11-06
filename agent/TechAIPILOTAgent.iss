@@ -1,5 +1,5 @@
 #define MyAppName "TechAIPILOT Agent"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "TechAIPILOT"
 #define MyAppExeName "TechAIPILOTAgent.exe"
 
@@ -39,8 +39,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 
 [Files]
-Source: ".\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: ".\dist\TechAIPILOTEnrollment.exe"; DestDir: "{tmp}"; Flags: ignoreversion dontcopy
+Source: ".\dist-fresh\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: ".\dist-fresh\TechAIPILOTEnrollment.exe"; DestDir: "{tmp}"; Flags: ignoreversion dontcopy
 
 
 [Dirs]
@@ -58,6 +58,7 @@ Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "TECHAIPILOT_LO
 [UninstallRun]
 Filename: "schtasks.exe"; Parameters: "/End /TN ""TechAIPILOT Agent"""; Flags: runhidden; RunOnceId: "EndTechAIPILOTAgent"
 Filename: "schtasks.exe"; Parameters: "/Delete /TN ""TechAIPILOT Agent"" /F"; Flags: runhidden; RunOnceId: "DeleteTechAIPILOTAgent"
+Filename: "taskkill.exe"; Parameters: "/IM ""{#MyAppExeName}"" /F"; Flags: runhidden; RunOnceId: "KillTechAIPILOTAgent"
 
 
 [UninstallDelete]
@@ -93,9 +94,9 @@ begin
   Result := '';
 
   if not LoadStringFromFile(ResultPath, Content) then
-  Exit;
+    Exit;
 
-TextContent := String(Content);
+  TextContent := String(Content);
 
   Marker := '"agent_token": "';
   StartPos := Pos(Marker, TextContent);
@@ -107,13 +108,13 @@ TextContent := String(Content);
   EndPos := StartPos;
 
   while (EndPos <= Length(TextContent)) and
-  (TextContent[EndPos] <> '"') do
+        (TextContent[EndPos] <> '"') do
   begin
     Inc(EndPos);
   end;
 
   if EndPos <= Length(TextContent) then
-  Result := Copy(TextContent, StartPos, EndPos - StartPos);
+    Result := Copy(TextContent, StartPos, EndPos - StartPos);
 end;
 
 function RunEnrollment: Boolean;
@@ -172,7 +173,9 @@ begin
   if ResultCode <> 0 then
   begin
     MsgBox(
-      'Device enrollment failed. Please verify the enrollment code and try again.',
+      'Device enrollment failed. Please verify the enrollment code and try again.' +
+      Chr(13) + Chr(10) + Chr(13) + Chr(10) +
+      'If the server was idle, it can take up to a minute to wake up. Wait a moment and click Next again.',
       mbError,
       MB_OK
     );
@@ -219,41 +222,11 @@ end;
 function XmlEscape(const Value: String): String;
 begin
   Result := Value;
-
-  StringChangeEx(
-    Result,
-    '&',
-    '&amp;',
-    True
-  );
-
-  StringChangeEx(
-    Result,
-    '<',
-    '&lt;',
-    True
-  );
-
-  StringChangeEx(
-    Result,
-    '>',
-    '&gt;',
-    True
-  );
-
-  StringChangeEx(
-    Result,
-    '"',
-    '&quot;',
-    True
-  );
-
-  StringChangeEx(
-    Result,
-    '''',
-    '&apos;',
-    True
-  );
+  StringChangeEx(Result, '&', '&amp;', True);
+  StringChangeEx(Result, '<', '&lt;', True);
+  StringChangeEx(Result, '>', '&gt;', True);
+  StringChangeEx(Result, '"', '&quot;', True);
+  StringChangeEx(Result, '''', '&apos;', True);
 end;
 
 
@@ -267,18 +240,11 @@ begin
       'Enter the backend URL and the device enrollment code provided by your TechAIPILOT dashboard.'
     );
 
-  ConfigPage.Add(
-    'Backend URL:',
-    False
-  );
-
-  ConfigPage.Add(
-    'Enrollment code:',
-    False
-  );
+  ConfigPage.Add('Backend URL:', False);
+  ConfigPage.Add('Enrollment code:', False);
 
   ConfigPage.Values[0] :=
-    'http://192.168.0.69:8000';
+    'https://techaipilot-api.onrender.com';
 end;
 
 
@@ -291,53 +257,29 @@ begin
 
     if Trim(ConfigPage.Values[0]) = '' then
     begin
-      MsgBox(
-        'Backend URL is required.',
-        mbError,
-        MB_OK
-      );
-
+      MsgBox('Backend URL is required.', mbError, MB_OK);
       Result := False;
       Exit;
     end;
 
-
-    if Pos(
-      'http://',
-      LowerCase(Trim(ConfigPage.Values[0]))
-    ) <> 1 then
+    if (Pos('http://', LowerCase(Trim(ConfigPage.Values[0]))) <> 1) and
+       (Pos('https://', LowerCase(Trim(ConfigPage.Values[0]))) <> 1) then
     begin
-
-      if Pos(
-        'https://',
-        LowerCase(Trim(ConfigPage.Values[0]))
-      ) <> 1 then
-      begin
-
-        MsgBox(
-          'Backend URL must start with http:// or https://.',
-          mbError,
-          MB_OK
-        );
-
-        Result := False;
-        Exit;
-      end;
-
+      MsgBox(
+        'Backend URL must start with http:// or https://.',
+        mbError,
+        MB_OK
+      );
+      Result := False;
+      Exit;
     end;
 
-
     if Trim(ConfigPage.Values[1]) = '' then
-begin
-  MsgBox(
-    'Enrollment code is required.',
-    mbError,
-    MB_OK
-  );
-
-  Result := False;
-  Exit;
-end;
+    begin
+      MsgBox('Enrollment code is required.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
 
     if not RunEnrollment then
     begin
@@ -357,7 +299,6 @@ end;
         mbError,
         MB_OK
       );
-
       Result := False;
       Exit;
     end;
@@ -366,263 +307,195 @@ end;
 end;
 
 
+//
+// Stop any running agent before files are replaced, so an
+// update never fails with "file in use".
+//
+procedure StopRunningAgent;
+var
+  ResultCode: Integer;
+begin
+  Exec(
+    ExpandConstant('{sys}\schtasks.exe'),
+    '/End /TN "TechAIPILOT Agent"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode
+  );
+
+  Exec(
+    ExpandConstant('{sys}\taskkill.exe'),
+    '/IM "{#MyAppExeName}" /F',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode
+  );
+
+  Sleep(1500);
+end;
+
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   LauncherPath: String;
   TaskXmlPath: String;
-
   LauncherContent: String;
   TaskXmlContent: String;
-
   UserName: String;
-
   ResultCode: Integer;
 begin
 
-  if CurStep = ssPostInstall then
-begin
+  if CurStep = ssInstall then
+  begin
+    StopRunningAgent;
+  end;
 
-  //
-  // Create launcher.
-  //
-    // The launcher reads the configuration from
-    // the current user's environment and passes it
-    // to the interactive agent process.
+  if CurStep = ssPostInstall then
+  begin
+
+    //
+    // Launcher = watchdog.
+    //
+    // Loads the configuration from the user's environment and
+    // keeps the agent running: if the agent exits for any
+    // reason (crash, terminal window closed), it is started
+    // again after 10 seconds. If an agent is already running,
+    // it does nothing.
     //
 
     LauncherPath :=
-      ExpandConstant(
-        '{app}\TechAIPILOTAgentLauncher.ps1'
-      );
-
+      ExpandConstant('{app}\TechAIPILOTAgentLauncher.ps1');
 
     LauncherContent :=
-      '$ErrorActionPreference = "Stop"' + #13#10 +
+      '$ErrorActionPreference = "Continue"' + '' + #13#10 +
+      '$envKey = "HKCU:\Environment"' + '' + #13#10 +
+      '' + #13#10 +
+      'function Get-Setting([string]$name) {' + '' + #13#10 +
+      '    (Get-ItemProperty -Path $envKey -Name $name -ErrorAction SilentlyContinue).$name' + '' + #13#10 +
+      '}' + '' + #13#10 +
+      '' + #13#10 +
+      '$env:TECHAIPILOT_BACKEND_URL = Get-Setting "TECHAIPILOT_BACKEND_URL"' + '' + #13#10 +
+      '$env:TECHAIPILOT_AGENT_TOKEN = Get-Setting "TECHAIPILOT_AGENT_TOKEN"' + '' + #13#10 +
+      '$env:TECHAIPILOT_DATA_DIR = Get-Setting "TECHAIPILOT_DATA_DIR"' + '' + #13#10 +
+      '$env:TECHAIPILOT_LOG_DIR = Get-Setting "TECHAIPILOT_LOG_DIR"' + '' + #13#10 +
+      '' + #13#10 +
+      '$exe = Join-Path $PSScriptRoot "TechAIPILOTAgent.exe"' + '' + #13#10 +
+      '' + #13#10 +
+      'while ($true) {' + '' + #13#10 +
+      '    if (-not (Get-Process -Name "TechAIPILOTAgent" -ErrorAction SilentlyContinue)) {' + '' + #13#10 +
+      '        try {' + '' + #13#10 +
+      '            Start-Process -FilePath $exe -WorkingDirectory $PSScriptRoot -Wait' + '' + #13#10 +
+      '        } catch { }' + '' + #13#10 +
+      '    }' + '' + #13#10 +
+      '    Start-Sleep -Seconds 10' + '' + #13#10 +
+      '}' + #13#10;
 
-      '$envKey = "HKCU:\Environment"' + #13#10 +
-
-      '$backend = (Get-ItemProperty -Path $envKey -Name "TECHAIPILOT_BACKEND_URL").TECHAIPILOT_BACKEND_URL' + #13#10 +
-
-      '$token = (Get-ItemProperty -Path $envKey -Name "TECHAIPILOT_AGENT_TOKEN").TECHAIPILOT_AGENT_TOKEN' + #13#10 +
-
-      '$dataDir = (Get-ItemProperty -Path $envKey -Name "TECHAIPILOT_DATA_DIR").TECHAIPILOT_DATA_DIR' + #13#10 +
-
-      '$logDir = (Get-ItemProperty -Path $envKey -Name "TECHAIPILOT_LOG_DIR").TECHAIPILOT_LOG_DIR' + #13#10 +
-
-      '$env:TECHAIPILOT_BACKEND_URL = $backend' + #13#10 +
-
-      '$env:TECHAIPILOT_AGENT_TOKEN = $token' + #13#10 +
-
-      '$env:TECHAIPILOT_DATA_DIR = $dataDir' + #13#10 +
-
-      '$env:TECHAIPILOT_LOG_DIR = $logDir' + #13#10 +
-
-      'Start-Process -FilePath (Join-Path $PSScriptRoot "TechAIPILOTAgent.exe") -WorkingDirectory $PSScriptRoot -Wait';
-
-
-    if not SaveStringToFile(
-      LauncherPath,
-      LauncherContent,
-      False
-    ) then
+    if not SaveStringToFile(LauncherPath, LauncherContent, False) then
     begin
-
       MsgBox(
         'Could not create the TechAIPILOT agent launcher.',
         mbError,
         MB_OK
       );
-
       Exit;
-
     end;
 
+    UserName := XmlEscape(ExpandConstant('{username}'));
 
     //
-    // Determine the Windows user that installed
-    // the interactive agent.
+    // Scheduled task.
+    //
+    // - Starts 20s after logon (network has time to come up).
+    // - Repeats every 5 minutes; IgnoreNew means this only does
+    //   something if the launcher itself has stopped.
+    // - ExecutionTimeLimit PT0S = never stopped by Windows
+    //   (the default would kill it after 72 hours).
+    // - HighestAvailable: lets the remote technician control
+    //   elevated windows (Task Manager, admin consoles). Change
+    //   back to LeastPrivilege if that is not wanted.
     //
 
-    UserName :=
-      XmlEscape(
-        ExpandConstant('{username}')
-      );
-
-
-    //
-    // Create the Task Scheduler XML.
-    //
-
-    TaskXmlPath :=
-      ExpandConstant(
-        '{tmp}\TechAIPILOTAgentTask.xml'
-      );
-
+    TaskXmlPath := ExpandConstant('{tmp}\TechAIPILOTAgentTask.xml');
 
     TaskXmlContent :=
-      '<?xml version="1.0" encoding="UTF-16"?>' + #13#10 +
-
-      '<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">' + #13#10 +
-
-      '  <RegistrationInfo>' + #13#10 +
-      '    <Author>TechAIPILOT</Author>' + #13#10 +
-      '    <Description>Starts the TechAIPILOT interactive agent when the user logs on.</Description>' + #13#10 +
-      '  </RegistrationInfo>' + #13#10 +
-
-      '  <Triggers>' + #13#10 +
-
-      '    <LogonTrigger>' + #13#10 +
-      '      <Enabled>true</Enabled>' + #13#10 +
-      '      <UserId>' + UserName + '</UserId>' + #13#10 +
-      '      <Delay>PT10S</Delay>' + #13#10 +
-      '    </LogonTrigger>' + #13#10 +
-
-      '  </Triggers>' + #13#10 +
-
-      '  <Principals>' + #13#10 +
-
-      '    <Principal id="Author">' + #13#10 +
-      '      <UserId>' + UserName + '</UserId>' + #13#10 +
-      '      <LogonType>InteractiveToken</LogonType>' + #13#10 +
-      '      <RunLevel>LeastPrivilege</RunLevel>' + #13#10 +
-      '    </Principal>' + #13#10 +
-
-      '  </Principals>' + #13#10 +
-
-      '  <Settings>' + #13#10 +
-
-      '  <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>' + #13#10 +
-      '  <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>' + #13#10 +
-
-      '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>' + #13#10 +
-
-      '    <AllowHardTerminate>true</AllowHardTerminate>' + #13#10 +
-
-      '    <StartWhenAvailable>true</StartWhenAvailable>' + #13#10 +
-
-      '    <AllowStartOnDemand>true</AllowStartOnDemand>' + #13#10 +
-
-      '    <Enabled>true</Enabled>' + #13#10 +
-
-      '    <Hidden>true</Hidden>' + #13#10 +
-
-      '    <RestartOnFailure>' + #13#10 +
-      '      <Interval>PT1M</Interval>' + #13#10 +
-      '      <Count>3</Count>' + #13#10 +
-      '    </RestartOnFailure>' + #13#10 +
-
-      '  </Settings>' + #13#10 +
-
-      '  <Actions Context="Author">' + #13#10 +
-
-      '    <Exec>' + #13#10 +
-
-      '      <Command>powershell.exe</Command>' + #13#10 +
-
+      '<?xml version="1.0" encoding="UTF-16"?>' + '' + #13#10 +
+      '<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">' + '' + #13#10 +
+      '  <RegistrationInfo>' + '' + #13#10 +
+      '    <Author>TechAIPILOT</Author>' + '' + #13#10 +
+      '    <Description>Starts the TechAIPILOT interactive agent when the user logs on and keeps it running.</Description>' + '' + #13#10 +
+      '  </RegistrationInfo>' + '' + #13#10 +
+      '  <Triggers>' + '' + #13#10 +
+      '    <LogonTrigger>' + '' + #13#10 +
+      '      <Enabled>true</Enabled>' + '' + #13#10 +
+      '      <UserId>' + UserName + '</UserId>' + '' + #13#10 +
+      '      <Delay>PT20S</Delay>' + '' + #13#10 +
+      '      <Repetition>' + '' + #13#10 +
+      '        <Interval>PT5M</Interval>' + '' + #13#10 +
+      '        <StopAtDurationEnd>false</StopAtDurationEnd>' + '' + #13#10 +
+      '      </Repetition>' + '' + #13#10 +
+      '    </LogonTrigger>' + '' + #13#10 +
+      '  </Triggers>' + '' + #13#10 +
+      '  <Principals>' + '' + #13#10 +
+      '    <Principal id="Author">' + '' + #13#10 +
+      '      <UserId>' + UserName + '</UserId>' + '' + #13#10 +
+      '      <LogonType>InteractiveToken</LogonType>' + '' + #13#10 +
+      '      <RunLevel>HighestAvailable</RunLevel>' + '' + #13#10 +
+      '    </Principal>' + '' + #13#10 +
+      '  </Principals>' + '' + #13#10 +
+      '  <Settings>' + '' + #13#10 +
+      '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>' + '' + #13#10 +
+      '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>' + '' + #13#10 +
+      '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>' + '' + #13#10 +
+      '    <AllowHardTerminate>true</AllowHardTerminate>' + '' + #13#10 +
+      '    <StartWhenAvailable>true</StartWhenAvailable>' + '' + #13#10 +
+      '    <AllowStartOnDemand>true</AllowStartOnDemand>' + '' + #13#10 +
+      '    <Enabled>true</Enabled>' + '' + #13#10 +
+      '    <Hidden>true</Hidden>' + '' + #13#10 +
+      '    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>' + '' + #13#10 +
+      '    <RestartOnFailure>' + '' + #13#10 +
+      '      <Interval>PT1M</Interval>' + '' + #13#10 +
+      '      <Count>999</Count>' + '' + #13#10 +
+      '    </RestartOnFailure>' + '' + #13#10 +
+      '  </Settings>' + '' + #13#10 +
+      '  <Actions Context="Author">' + '' + #13#10 +
+      '    <Exec>' + '' + #13#10 +
+      '      <Command>powershell.exe</Command>' + '' + #13#10 +
       '      <Arguments>-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
-
-      XmlEscape(
-        ExpandConstant(
-          '{app}\TechAIPILOTAgentLauncher.ps1'
-        )
-      ) +
-
-      '"</Arguments>' + #13#10 +
-
-      '      <WorkingDirectory>' +
-
-      XmlEscape(
-        ExpandConstant(
-          '{app}'
-        )
-      ) +
-
-      '</WorkingDirectory>' + #13#10 +
-
-      '    </Exec>' + #13#10 +
-
-      '  </Actions>' + #13#10 +
-
+      XmlEscape(ExpandConstant('{app}\TechAIPILOTAgentLauncher.ps1')) +
+      '"</Arguments>' + '' + #13#10 +
+      '      <WorkingDirectory>' + XmlEscape(ExpandConstant('{app}')) + '</WorkingDirectory>' + '' + #13#10 +
+      '    </Exec>' + '' + #13#10 +
+      '  </Actions>' + '' + #13#10 +
       '</Task>';
 
-
-    if not SaveStringToFile(
-      TaskXmlPath,
-      TaskXmlContent,
-      False
-    ) then
+    if not SaveStringToFile(TaskXmlPath, TaskXmlContent, False) then
     begin
-
       MsgBox(
         'Could not create the TechAIPILOT scheduled-task definition.',
         mbError,
         MB_OK
       );
-
       Exit;
-
     end;
 
-
-    //
-    // Register the scheduled task.
-    //
-
     Exec(
-      ExpandConstant(
-        '{sys}\schtasks.exe'
-      ),
-
-      '/Create /TN "TechAIPILOT Agent" /XML "' +
-      TaskXmlPath +
-      '" /F',
-
-      '',
-
-      SW_HIDE,
-
-      ewWaitUntilTerminated,
-
-      ResultCode
+      ExpandConstant('{sys}\schtasks.exe'),
+      '/Create /TN "TechAIPILOT Agent" /XML "' + TaskXmlPath + '" /F',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode
     );
-
 
     if ResultCode <> 0 then
     begin
-
-            MsgBox(
+      MsgBox(
         'The TechAIPILOT Agent was installed, but Windows Task Scheduler could not create the automatic startup task.' +
         Chr(13) + Chr(10) + Chr(13) + Chr(10) +
         'You can retry the installation after checking Task Scheduler permissions.',
-
         mbError,
-
         MB_OK
       );
-
       Exit;
-
     end;
 
-
-    //
-    // Start the newly created task immediately.
-    //
-
     Exec(
-      ExpandConstant(
-        '{sys}\schtasks.exe'
-      ),
-
+      ExpandConstant('{sys}\schtasks.exe'),
       '/Run /TN "TechAIPILOT Agent"',
-
-      '',
-
-      SW_HIDE,
-
-      ewWaitUntilTerminated,
-
-      ResultCode
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode
     );
 
   end;
@@ -639,5 +512,4 @@ begin
       'TECHAIPILOT_AGENT_TOKEN'
     );
   end;
-
 end;

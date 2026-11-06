@@ -8,7 +8,6 @@ import {
 import type {
   KeyboardEvent,
   MouseEvent,
-  WheelEvent,
 } from "react";
 
 import {
@@ -17,39 +16,24 @@ import {
 } from "../api";
 
 
+type MouseButtonName = "left" | "right" | "middle";
+
 type RemoteCommand =
+  | { type: "mouse_move"; nx: number; ny: number }
   | {
-      type: "mouse_move";
-      x: number;
-      y: number;
+      type: "mouse_down" | "mouse_up";
+      nx: number;
+      ny: number;
+      button: MouseButtonName;
     }
-  | {
-      type: "mouse_click";
-      x: number;
-      y: number;
-      button: "left" | "right";
-      clicks: number;
-    }
-  | {
-      type: "key_press";
-      key: string;
-    }
-  | {
-      type: "hotkey";
-      keys: string[];
-    }
-  | {
-      type: "scroll";
-      amount: number;
-    };
+  | { type: "key_press"; key: string }
+  | { type: "hotkey"; keys: string[] }
+  | { type: "type_text"; text: string }
+  | { type: "scroll"; delta: number; hdelta: number; amount: number }
+  | { type: "frame_ack"; seq: number }
+  | { type: "viewer_ready" };
 
-
-type RemoteStatus =
-  | "connecting"
-  | "live"
-  | "error"
-  | "ended";
-
+type RemoteStatus = "connecting" | "live" | "error" | "ended";
 
 type RemoteSessionProps = {
   sessionId?: number;
@@ -57,10 +41,61 @@ type RemoteSessionProps = {
 };
 
 
-const MOUSE_MOVE_INTERVAL_MS = 33;
-const WHEEL_INTERVAL_MS = 25;
+const MOUSE_MOVE_INTERVAL_MS = 16;
+const WHEEL_INTERVAL_MS = 16;
 const STREAM_RETRY_MS = 1000;
 const CONTROL_RETRY_MS = 1000;
+
+// Frame header written by the agent: "TPF1" | uint32 seq | uint16 w | uint16 h
+const FRAME_HEADER_BYTES = 12;
+
+const BUTTON_NAMES: Record<number, MouseButtonName> = {
+  0: "left",
+  1: "middle",
+  2: "right",
+};
+
+const KEY_MAP: Record<string, string> = {
+  " ": "space",
+  ArrowUp: "up",
+  ArrowDown: "down",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  Enter: "enter",
+  Escape: "esc",
+  Backspace: "backspace",
+  Delete: "delete",
+  Tab: "tab",
+  Home: "home",
+  End: "end",
+  PageUp: "pageup",
+  PageDown: "pagedown",
+  Insert: "insert",
+  CapsLock: "capslock",
+  PrintScreen: "printscreen",
+  NumLock: "numlock",
+  ScrollLock: "scrolllock",
+  Pause: "pause",
+  ContextMenu: "apps",
+  Meta: "win",
+};
+
+const MODIFIER_KEYS = new Set(["Control", "Shift", "Alt", "Meta", "AltGraph"]);
+
+
+/**
+ * Base key for a shortcut, independent of Shift / layout.
+ * Ctrl+Shift+1 should be ctrl+shift+1, not ctrl+shift+!.
+ */
+function shortcutKey(event: KeyboardEvent<HTMLCanvasElement>): string {
+  const { code, key } = event;
+
+  if (code.startsWith("Key")) return code.slice(3).toLowerCase();
+  if (code.startsWith("Digit")) return code.slice(5);
+  if (KEY_MAP[key]) return KEY_MAP[key];
+
+  return key.toLowerCase();
+}
 
 
 export default function RemoteSession({
@@ -68,919 +103,489 @@ export default function RemoteSession({
   token,
 }: RemoteSessionProps) {
 
-  /*
-   * =========================================================
-   * SESSION
-   * =========================================================
-   */
+  /* ================= SESSION ================= */
 
   const querySessionId = Number(
-    new URLSearchParams(
-      window.location.search,
-    ).get("remote_session"),
+    new URLSearchParams(window.location.search).get("remote_session"),
   );
 
   const effectiveSessionId =
-    sessionId &&
-    Number.isFinite(sessionId)
-      ? sessionId
-      : querySessionId;
+    sessionId && Number.isFinite(sessionId) ? sessionId : querySessionId;
 
 
-  /*
-   * =========================================================
-   * STATE
-   * =========================================================
-   */
+  /* ================= STATE ================= */
 
-  const [
-    remoteStatus,
-    setRemoteStatus,
-  ] = useState<RemoteStatus>("connecting");
+  const [remoteStatus, setRemoteStatus] =
+    useState<RemoteStatus>("connecting");
 
-  const [
-    remoteError,
-    setRemoteError,
-  ] = useState<string | null>(null);
+  const [remoteError, setRemoteError] =
+    useState<string | null>(null);
 
 
-  /*
-   * =========================================================
-   * REFS
-   * =========================================================
-   */
+  /* ================= REFS ================= */
 
-  const screenRef =
-    useRef<HTMLDivElement | null>(null);
+  const screenRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const canvasRef =
-    useRef<HTMLCanvasElement | null>(null);
+  const streamSocketRef = useRef<WebSocket | null>(null);
+  const controlSocketRef = useRef<WebSocket | null>(null);
 
-  const streamSocketRef =
-    useRef<WebSocket | null>(null);
+  const streamRetryTimerRef = useRef<number | null>(null);
+  const controlRetryTimerRef = useRef<number | null>(null);
 
-  const controlSocketRef =
-    useRef<WebSocket | null>(null);
+  const viewerStoppedRef = useRef(false);
 
-  const streamRetryTimerRef =
-    useRef<number | null>(null);
+  // Latest-frame-wins: only one frame is ever waiting to be drawn.
+  const pendingFrameRef = useRef<{ blob: Blob; seq: number } | null>(null);
+  const renderingFrameRef = useRef(false);
+  const renderAnimationRef = useRef<number | null>(null);
 
-  const controlRetryTimerRef =
-    useRef<number | null>(null);
+  const latestMousePositionRef = useRef<{ nx: number; ny: number } | null>(null);
+  const mouseMoveTimerRef = useRef<number | null>(null);
+  const pressedButtonsRef = useRef<Set<MouseButtonName>>(new Set());
 
-  const viewerStoppedRef =
-    useRef(false);
-
-
-  /*
-   * Latest-frame-wins rendering.
-   *
-   * We intentionally keep only ONE pending frame.
-   * If 5 frames arrive while the browser is decoding
-   * one frame, the four old frames are discarded.
-   */
-
-  const pendingFrameRef =
-    useRef<Blob | null>(null);
-  const receivedFrameCountRef =
-  useRef(0);
-
-  const renderingFrameRef =
-    useRef(false);
-
-  const renderAnimationRef =
-    useRef<number | null>(null);
-
-  const remoteWidthRef =
-    useRef(0);
-
-  const remoteHeightRef =
-    useRef(0);
+  const wheelDeltaRef = useRef(0);
+  const wheelHDeltaRef = useRef(0);
+  const wheelTimerRef = useRef<number | null>(null);
 
 
-  /*
-   * Mouse coalescing.
-   *
-   * The browser can generate hundreds of mousemove events
-   * per second. We send only the newest position roughly
-   * every 33 ms (~30 commands/sec).
-   */
+  /* ================= WEBSOCKET URL ================= */
 
-  const latestMousePositionRef =
-    useRef<{
-      x: number;
-      y: number;
-    } | null>(null);
-
-  const mouseMoveTimerRef =
-    useRef<number | null>(null);
-
-
-  /*
-   * Wheel coalescing.
-   */
-
-  const wheelAmountRef =
-    useRef(0);
-
-  const wheelTimerRef =
-    useRef<number | null>(null);
-
-
-  /*
- * =========================================================
- * BUILD WEBSOCKET URL
- * =========================================================
- */
-
-const buildWebSocketUrl =
-  useCallback(
+  const buildWebSocketUrl = useCallback(
     (path: string) => {
-
       const baseUrl =
         `${getRemoteWebSocketBaseUrl()}` +
-        `/api/v1/remote/sessions/` +
-        `${effectiveSessionId}` +
-        path;
+        `/api/v1/remote/sessions/${effectiveSessionId}${path}`;
 
-      const separator =
-        path.includes("?")
-          ? "&"
-          : "?";
+      const separator = path.includes("?") ? "&" : "?";
 
-      return (
-        `${baseUrl}` +
-        `${separator}` +
-        `token=${encodeURIComponent(token)}`
-      );
+      return `${baseUrl}${separator}token=${encodeURIComponent(token)}`;
     },
     [effectiveSessionId, token],
   );
 
 
-  /*
-   * =========================================================
-   * SEND CONTROL COMMAND
-   * =========================================================
+  /* ================= SEND CONTROL COMMAND ================= */
+
+  const sendRemoteCommand = useCallback((command: RemoteCommand) => {
+    const socket = controlSocketRef.current;
+
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    try {
+      socket.send(JSON.stringify(command));
+      return true;
+    } catch (error) {
+      console.error("[CONTROL] Failed to send command:", error);
+      return false;
+    }
+  }, []);
+
+
+  /* ================= CANVAS SIZING =================
+   * Scale the remote frame to fill the available area while
+   * keeping its aspect ratio (works for any streamed resolution).
    */
 
-  const sendRemoteCommand =
-    useCallback(
-      (command: RemoteCommand) => {
+  const fitCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    const container = screenRef.current;
 
-        const socket =
-          controlSocketRef.current;
+    if (!canvas || !container || canvas.width <= 0 || canvas.height <= 0) {
+      return;
+    }
 
-        if (
-          !socket ||
-          socket.readyState !== WebSocket.OPEN
-        ) {
-          return false;
-        }
+    const availableWidth = container.clientWidth;
+    const availableHeight = container.clientHeight;
 
-        try {
+    if (availableWidth <= 0 || availableHeight <= 0) {
+      return;
+    }
 
-          socket.send(
-            JSON.stringify(command),
-          );
-
-          return true;
-
-        } catch (error) {
-
-          console.error(
-            "[CONTROL] Failed to send command:",
-            error,
-          );
-
-          return false;
-        }
-      },
-      [],
+    const scale = Math.min(
+      availableWidth / canvas.width,
+      availableHeight / canvas.height,
     );
 
+    canvas.style.width = `${Math.floor(canvas.width * scale)}px`;
+    canvas.style.height = `${Math.floor(canvas.height * scale)}px`;
+  }, []);
 
-  /*
-   * =========================================================
-   * REMOTE COORDINATES
-   * =========================================================
+  useEffect(() => {
+    const container = screenRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => fitCanvas());
+    observer.observe(container);
+
+    return () => observer.disconnect();
+  }, [fitCanvas]);
+
+
+  /* ================= REMOTE COORDINATES =================
+   * Normalised 0..1 coordinates; the agent maps them to the real
+   * monitor, so downscaled frames and DPI scaling do not matter.
    */
 
-  const getRemoteCoordinates =
-    useCallback(
-      (
-        event:
-          | MouseEvent<HTMLCanvasElement>
-          | globalThis.MouseEvent,
-      ) => {
+  const getRemoteCoordinates = useCallback(
+    (event: MouseEvent<HTMLCanvasElement> | globalThis.MouseEvent) => {
+      const canvas = canvasRef.current;
 
-        const canvas =
-          canvasRef.current;
+      if (!canvas) {
+        return null;
+      }
 
-        if (!canvas) {
-          return null;
-        }
+      const rect = canvas.getBoundingClientRect();
 
-        const rect =
-          canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        return null;
+      }
 
-        if (
-          rect.width <= 0 ||
-          rect.height <= 0 ||
-          canvas.width <= 0 ||
-          canvas.height <= 0
-        ) {
-          return null;
-        }
+      const nx = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+      const ny = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
 
-        const scaleX =
-          canvas.width / rect.width;
-
-        const scaleY =
-          canvas.height / rect.height;
-
-        const x = Math.max(
-          0,
-          Math.min(
-            canvas.width - 1,
-            Math.round(
-              (event.clientX - rect.left) *
-              scaleX,
-            ),
-          ),
-        );
-
-        const y = Math.max(
-          0,
-          Math.min(
-            canvas.height - 1,
-            Math.round(
-              (event.clientY - rect.top) *
-              scaleY,
-            ),
-          ),
-        );
-
-        return {
-          x,
-          y,
-        };
-      },
-      [],
-    );
-
-
-  /*
-   * =========================================================
-   * RENDER LATEST FRAME
-   * =========================================================
-   */
-
-  const renderLatestFrame =
-    useCallback(
-      async () => {
-
-  console.log(
-    "[REMOTE] renderLatestFrame ENTERED",
-    {
-      rendering:
-        renderingFrameRef.current,
-      stopped:
-        viewerStoppedRef.current,
-      hasCanvas:
-        !!canvasRef.current,
-      hasPendingFrame:
-        !!pendingFrameRef.current,
+      return { nx, ny };
     },
+    [],
   );
 
-  if (
-    renderingFrameRef.current ||
-    viewerStoppedRef.current
-  ) {
-    console.log(
-      "[REMOTE] renderLatestFrame BLOCKED",
-      {
-        rendering:
-          renderingFrameRef.current,
-        stopped:
-          viewerStoppedRef.current,
-      },
-    );
 
-    return;
-  }
+  /* ================= RENDER LATEST FRAME ================= */
 
-  const canvas =
-    canvasRef.current;
+  const renderLatestFrame = useCallback(async () => {
+    if (renderingFrameRef.current || viewerStoppedRef.current) {
+      return;
+    }
 
-        if (!canvas) {
-          return;
-        }
+    const canvas = canvasRef.current;
+    const pending = pendingFrameRef.current;
 
-        const frame =
-          pendingFrameRef.current;
+    if (!canvas || !pending) {
+      return;
+    }
 
-        if (!frame) {
-          return;
-        }
+    pendingFrameRef.current = null;
+    renderingFrameRef.current = true;
 
-        pendingFrameRef.current =
-          null;
+    try {
+      const bitmap = await createImageBitmap(pending.blob);
 
-        renderingFrameRef.current =
-          true;
+      if (viewerStoppedRef.current) {
+        bitmap.close();
+        return;
+      }
 
-        try {
+      if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        fitCanvas();
+      }
 
-          const bitmap =
-            await createImageBitmap(frame);
-            if (
-  receivedFrameCountRef.current <= 5 ||
-  receivedFrameCountRef.current % 30 === 0
-) {
-  console.log(
-    "[REMOTE] Rendering frame:",
-    receivedFrameCountRef.current,
-    bitmap.width,
-    "x",
-    bitmap.height,
-  );
-}
+      const context = canvas.getContext("2d", {
+        alpha: false,
+        desynchronized: true,
+      });
 
-          if (viewerStoppedRef.current) {
-            bitmap.close();
-            return;
-          }
+      if (context) {
+        context.drawImage(bitmap, 0, 0);
+      }
 
-          if (
-            canvas.width !== bitmap.width ||
-            canvas.height !== bitmap.height
-          ) {
+      bitmap.close();
 
-            canvas.width =
-              bitmap.width;
+      // Tell the agent this frame is on screen; it uses this to pace
+      // itself so frames never queue up in the network.
+      if (pending.seq > 0) {
+        sendRemoteCommand({ type: "frame_ack", seq: pending.seq });
+      }
 
-            canvas.height =
-              bitmap.height;
+    } catch (error) {
+      console.error("[REMOTE] Frame rendering error:", error);
 
-            remoteWidthRef.current =
-              bitmap.width;
+    } finally {
+      renderingFrameRef.current = false;
+    }
 
-            remoteHeightRef.current =
-              bitmap.height;
-
-            console.log(
-              "[REMOTE] Remote resolution:",
-              bitmap.width,
-              "x",
-              bitmap.height,
-            );
-          }
-
-          const context =
-            canvas.getContext("2d", {
-              alpha: false,
-              desynchronized: true,
-            });
-
-          if (!context) {
-            bitmap.close();
-            return;
-          }
-
-          context.drawImage(
-            bitmap,
-            0,
-            0,
-            canvas.width,
-            canvas.height,
-          );
-
-          bitmap.close();
-
-        } catch (error) {
-
-          console.error(
-            "[REMOTE] Frame rendering error:",
-            error,
-          );
-
-        } finally {
-
-          renderingFrameRef.current =
-            false;
-        }
-
-        /*
-         * If a newer frame arrived while the current
-         * frame was being decoded/drawn, immediately
-         * schedule the newest one.
-         */
-
-        if (
-          pendingFrameRef.current &&
-          !viewerStoppedRef.current
-        ) {
-
-          renderAnimationRef.current =
-            window.requestAnimationFrame(
-              () => {
-                renderAnimationRef.current =
-                  null;
-
-                void renderLatestFrame();
-              },
-            );
-        }
-      },
-      [],
-    );
+    if (pendingFrameRef.current && !viewerStoppedRef.current) {
+      renderAnimationRef.current = window.requestAnimationFrame(() => {
+        renderAnimationRef.current = null;
+        void renderLatestFrame();
+      });
+    }
+  }, [fitCanvas, sendRemoteCommand]);
 
 
-  /*
-   * =========================================================
-   * SCHEDULE FRAME RENDER
-   * =========================================================
-   */
+  const scheduleFrameRender = useCallback(() => {
+    if (
+      viewerStoppedRef.current ||
+      renderingFrameRef.current ||
+      renderAnimationRef.current !== null
+    ) {
+      return;
+    }
 
-  const scheduleFrameRender =
-    useCallback(() => {
+    renderAnimationRef.current = window.requestAnimationFrame(() => {
+      renderAnimationRef.current = null;
+      void renderLatestFrame();
+    });
+  }, [renderLatestFrame]);
+
+
+  /* ================= CONNECT STREAM ================= */
+
+  useEffect(() => {
+    if (!Number.isFinite(effectiveSessionId) || effectiveSessionId <= 0) {
+      setRemoteStatus("error");
+      setRemoteError("Invalid remote session ID.");
+      return;
+    }
+
+    viewerStoppedRef.current = false;
+
+    let disposed = false;
+
+    const streamUrl = buildWebSocketUrl("/stream");
+
+    const connectStream = () => {
+      if (disposed || viewerStoppedRef.current) {
+        return;
+      }
+
+      const current = streamSocketRef.current;
 
       if (
-        viewerStoppedRef.current ||
-        renderingFrameRef.current ||
-        renderAnimationRef.current !== null
+        current &&
+        (current.readyState === WebSocket.OPEN ||
+          current.readyState === WebSocket.CONNECTING)
       ) {
         return;
       }
 
-      console.log(
-        "[REMOTE] Scheduling frame render",
-      );
+      let socket: WebSocket;
 
-      renderAnimationRef.current =
-        window.requestAnimationFrame(
-          () => {
+      try {
+        socket = new WebSocket(streamUrl);
+        socket.binaryType = "arraybuffer";
+      } catch (error) {
+        console.error("[REMOTE] Failed to create stream socket:", error);
 
-            renderAnimationRef.current =
-              null;
-
-            void renderLatestFrame();
-          },
-        );
-    }, [renderLatestFrame]);
-
-
-  /*
-   * =========================================================
-   * CONNECT STREAM
-   * =========================================================
-   */
-
-  useEffect(() => {
-
-    if (
-      !Number.isFinite(effectiveSessionId) ||
-      effectiveSessionId <= 0
-    ) {
-
-      setRemoteStatus("error");
-
-      setRemoteError(
-        "Invalid remote session ID.",
-      );
-
-      return;
-    }
-
-    viewerStoppedRef.current =
-      false;
-
-    let disposed = false;
-
-    const streamUrl =
-      buildWebSocketUrl("/stream");
-
-    const connectStream =
-      () => {
-
-        if (
-          disposed ||
-          viewerStoppedRef.current
-        ) {
-          return;
-        }
-
-        /*
-         * Never create duplicate stream sockets.
-         */
-
-        const current =
-          streamSocketRef.current;
-
-        if (
-          current &&
-          (
-            current.readyState === WebSocket.OPEN ||
-            current.readyState === WebSocket.CONNECTING
-          )
-        ) {
-          return;
-        }
-
-        console.log(
-          "[REMOTE] Connecting viewer stream:",
-          streamUrl,
-        );
-
-        let socket: WebSocket;
-
-        try {
-
-          socket =
-            new WebSocket(streamUrl);
-
-          socket.binaryType =
-            "arraybuffer";
-
-        } catch (error) {
-
-          console.error(
-            "[REMOTE] Failed to create stream socket:",
-            error,
+        if (!disposed) {
+          setRemoteStatus("error");
+          setRemoteError("Failed to create remote screen connection.");
+          streamRetryTimerRef.current = window.setTimeout(
+            connectStream,
+            STREAM_RETRY_MS,
           );
+        }
+        return;
+      }
 
-          if (!disposed) {
+      streamSocketRef.current = socket;
 
-            setRemoteStatus("error");
-
-            setRemoteError(
-              "Failed to create remote screen connection.",
-            );
-
-            streamRetryTimerRef.current =
-              window.setTimeout(
-                connectStream,
-                STREAM_RETRY_MS,
-              );
-          }
-
+      socket.onopen = () => {
+        if (disposed) {
           return;
         }
 
-        streamSocketRef.current =
-          socket;
+        setRemoteStatus("live");
+        setRemoteError(null);
 
-        socket.onopen =
-          () => {
-
-            if (disposed) {
-              return;
-            }
-
-            console.log(
-              "[REMOTE] Screen stream connected",
-            );
-
-            setRemoteStatus("live");
-
-            setRemoteError(null);
-          };
-
-        socket.onmessage =
-          (event) => {
-
-            if (
-              disposed ||
-              viewerStoppedRef.current
-            ) {
-              return;
-            }
-
-            let frame: Blob | null = null;
-
-            if (
-              event.data instanceof ArrayBuffer
-            ) {
-
-              frame =
-                new Blob(
-                  [event.data],
-                  {
-                    type: "image/jpeg",
-                  },
-                );
-
-            } else if (
-              event.data instanceof Blob
-            ) {
-
-              frame =
-                event.data;
-            }
-            receivedFrameCountRef.current += 1;
-            if (!frame) {
-              return;
-            }
-            receivedFrameCountRef.current += 1;
-
-            if (
-              receivedFrameCountRef.current <= 5 ||
-              receivedFrameCountRef.current % 30 === 0
-            ) {
-              console.log(
-                "[REMOTE] Frames received:",
-                receivedFrameCountRef.current,
-                "size:",
-                frame.size,
-              );
-            }
-
-            /*
-             * Latest frame wins.
-             *
-             * This is critical for low-latency viewing.
-             */
-
-            pendingFrameRef.current =
-              frame;
-
-            scheduleFrameRender();
-          };
-
-        socket.onerror =
-          (event) => {
-
-            if (disposed) {
-              return;
-            }
-
-            console.error(
-              "[REMOTE] Screen stream error:",
-              event,
-            );
-
-            /*
-             * Do not immediately change the page to ERROR.
-             * onclose will perform the reconnect.
-             */
-          };
-
-        socket.onclose =
-          (event) => {
-
-            if (
-              streamSocketRef.current ===
-              socket
-            ) {
-              streamSocketRef.current =
-                null;
-            }
-
-            if (
-              disposed ||
-              viewerStoppedRef.current
-            ) {
-              return;
-            }
-
-            console.log(
-              "[REMOTE] Screen stream closed:",
-              event.code,
-              event.reason,
-            );
-
-            setRemoteStatus("connecting");
-
-            setRemoteError(
-              null,
-            );
-
-            streamRetryTimerRef.current =
-              window.setTimeout(
-                connectStream,
-                STREAM_RETRY_MS,
-              );
-          };
+        // Ask the agent for a fresh full frame right away.
+        sendRemoteCommand({ type: "viewer_ready" });
       };
 
+      socket.onmessage = (event) => {
+        if (disposed || viewerStoppedRef.current) {
+          return;
+        }
+
+        let blob: Blob | null = null;
+        let seq = 0;
+
+        if (event.data instanceof ArrayBuffer) {
+          const data = event.data;
+          const view = new DataView(data);
+
+          const hasHeader =
+            data.byteLength > FRAME_HEADER_BYTES &&
+            view.getUint8(0) === 0x54 && // T
+            view.getUint8(1) === 0x50 && // P
+            view.getUint8(2) === 0x46 && // F
+            view.getUint8(3) === 0x31;   // 1
+
+          if (hasHeader) {
+            seq = view.getUint32(4);
+            blob = new Blob(
+              [new Uint8Array(data, FRAME_HEADER_BYTES)],
+              { type: "image/jpeg" },
+            );
+          } else {
+            blob = new Blob([data], { type: "image/jpeg" });
+          }
+        } else if (event.data instanceof Blob) {
+          blob = event.data;
+        }
+
+        if (!blob) {
+          return;
+        }
+
+        // Latest frame wins. If an older frame was still waiting, it
+        // is dropped; acking the newer seq covers it too.
+        pendingFrameRef.current = { blob, seq };
+        scheduleFrameRender();
+      };
+
+      socket.onerror = (event) => {
+        if (!disposed) {
+          console.error("[REMOTE] Screen stream error:", event);
+        }
+      };
+
+      socket.onclose = (event) => {
+        if (streamSocketRef.current === socket) {
+          streamSocketRef.current = null;
+        }
+
+        if (disposed || viewerStoppedRef.current) {
+          return;
+        }
+
+        console.log("[REMOTE] Screen stream closed:", event.code, event.reason);
+
+        setRemoteStatus("connecting");
+        setRemoteError(null);
+
+        streamRetryTimerRef.current = window.setTimeout(
+          connectStream,
+          STREAM_RETRY_MS,
+        );
+      };
+    };
 
     connectStream();
 
-
     return () => {
-
       disposed = true;
+      viewerStoppedRef.current = true;
 
-      viewerStoppedRef.current =
-        true;
-
-      if (
-        streamRetryTimerRef.current !==
-        null
-      ) {
-
-        window.clearTimeout(
-          streamRetryTimerRef.current,
-        );
-
-        streamRetryTimerRef.current =
-          null;
+      if (streamRetryTimerRef.current !== null) {
+        window.clearTimeout(streamRetryTimerRef.current);
+        streamRetryTimerRef.current = null;
       }
 
-      if (
-        renderAnimationRef.current !==
-        null
-      ) {
-
-        window.cancelAnimationFrame(
-          renderAnimationRef.current,
-        );
-
-        renderAnimationRef.current =
-          null;
+      if (renderAnimationRef.current !== null) {
+        window.cancelAnimationFrame(renderAnimationRef.current);
+        renderAnimationRef.current = null;
       }
 
-      pendingFrameRef.current =
-        null;
+      pendingFrameRef.current = null;
 
-      const socket =
-        streamSocketRef.current;
-
-      streamSocketRef.current =
-        null;
+      const socket = streamSocketRef.current;
+      streamSocketRef.current = null;
 
       if (socket) {
-
         try {
           socket.close(1000, "viewer cleanup");
         } catch {
           // ignore
         }
       }
-
     };
-
   }, [
     effectiveSessionId,
     buildWebSocketUrl,
     scheduleFrameRender,
+    sendRemoteCommand,
   ]);
 
 
-  /*
-   * =========================================================
-   * CONNECT CONTROL
-   * =========================================================
-   */
+  /* ================= CONNECT CONTROL ================= */
 
   useEffect(() => {
-
-    if (
-      !Number.isFinite(effectiveSessionId) ||
-      effectiveSessionId <= 0
-    ) {
+    if (!Number.isFinite(effectiveSessionId) || effectiveSessionId <= 0) {
       return;
     }
 
     let disposed = false;
 
-    const controlUrl =
-      buildWebSocketUrl("/control");
+    const controlUrl = buildWebSocketUrl("/control");
 
-    const connectControl =
-      () => {
+    const connectControl = () => {
+      if (disposed || viewerStoppedRef.current) {
+        return;
+      }
 
-        if (
-          disposed ||
-          viewerStoppedRef.current
-        ) {
-          return;
-        }
+      const current = controlSocketRef.current;
 
-        const current =
-          controlSocketRef.current;
+      if (
+        current &&
+        (current.readyState === WebSocket.OPEN ||
+          current.readyState === WebSocket.CONNECTING)
+      ) {
+        return;
+      }
 
-        if (
-          current &&
-          (
-            current.readyState === WebSocket.OPEN ||
-            current.readyState === WebSocket.CONNECTING
-          )
-        ) {
-          return;
-        }
+      let socket: WebSocket;
 
-        console.log(
-          "[CONTROL] Connecting viewer control:",
-          controlUrl,
+      try {
+        socket = new WebSocket(controlUrl);
+      } catch (error) {
+        console.error("[CONTROL] Failed to create control socket:", error);
+        controlRetryTimerRef.current = window.setTimeout(
+          connectControl,
+          CONTROL_RETRY_MS,
         );
+        return;
+      }
 
-        let socket: WebSocket;
+      controlSocketRef.current = socket;
 
-        try {
-
-          socket =
-            new WebSocket(controlUrl);
-
-        } catch (error) {
-
-          console.error(
-            "[CONTROL] Failed to create control socket:",
-            error,
-          );
-
-          controlRetryTimerRef.current =
-            window.setTimeout(
-              connectControl,
-              CONTROL_RETRY_MS,
-            );
-
-          return;
-        }
-
-        controlSocketRef.current =
-          socket;
-
-        socket.onopen =
-          () => {
-
-            console.log(
-              "[CONTROL] Viewer control connected",
-            );
-          };
-
-        socket.onerror =
-          (event) => {
-
-            console.error(
-              "[CONTROL] Control socket error:",
-              event,
-            );
-          };
-
-        socket.onclose =
-          (event) => {
-
-            if (
-              controlSocketRef.current ===
-              socket
-            ) {
-              controlSocketRef.current =
-                null;
-            }
-
-            if (
-              disposed ||
-              viewerStoppedRef.current
-            ) {
-              return;
-            }
-
-            console.log(
-              "[CONTROL] Control socket closed:",
-              event.code,
-              event.reason,
-            );
-
-            controlRetryTimerRef.current =
-              window.setTimeout(
-                connectControl,
-                CONTROL_RETRY_MS,
-              );
-          };
+      socket.onopen = () => {
+        // Resets the agent's in-flight counter and requests a full frame.
+        sendRemoteCommand({ type: "viewer_ready" });
       };
 
+      socket.onerror = (event) => {
+        console.error("[CONTROL] Control socket error:", event);
+      };
+
+      socket.onclose = (event) => {
+        if (controlSocketRef.current === socket) {
+          controlSocketRef.current = null;
+        }
+
+        if (disposed || viewerStoppedRef.current) {
+          return;
+        }
+
+        console.log("[CONTROL] Control socket closed:", event.code, event.reason);
+
+        controlRetryTimerRef.current = window.setTimeout(
+          connectControl,
+          CONTROL_RETRY_MS,
+        );
+      };
+    };
 
     connectControl();
 
-
     return () => {
-
       disposed = true;
 
-      if (
-        controlRetryTimerRef.current !==
-        null
-      ) {
-
-        window.clearTimeout(
-          controlRetryTimerRef.current,
-        );
-
-        controlRetryTimerRef.current =
-          null;
+      if (controlRetryTimerRef.current !== null) {
+        window.clearTimeout(controlRetryTimerRef.current);
+        controlRetryTimerRef.current = null;
       }
 
-      const socket =
-        controlSocketRef.current;
-
-      controlSocketRef.current =
-        null;
+      const socket = controlSocketRef.current;
+      controlSocketRef.current = null;
 
       if (socket) {
-
         try {
           socket.close(1000, "viewer cleanup");
         } catch {
@@ -988,477 +593,280 @@ const buildWebSocketUrl =
         }
       }
     };
-
-  }, [
-    effectiveSessionId,
-    buildWebSocketUrl,
-  ]);
+  }, [effectiveSessionId, buildWebSocketUrl, sendRemoteCommand]);
 
 
-  /*
-   * =========================================================
-   * MOUSE MOVE
-   * =========================================================
+  /* ================= MOUSE MOVE ================= */
+
+  const flushMouseMove = useCallback(() => {
+    if (mouseMoveTimerRef.current !== null) {
+      window.clearTimeout(mouseMoveTimerRef.current);
+      mouseMoveTimerRef.current = null;
+    }
+
+    const position = latestMousePositionRef.current;
+
+    if (position) {
+      sendRemoteCommand({ type: "mouse_move", ...position });
+    }
+  }, [sendRemoteCommand]);
+
+  const handleMouseMove = useCallback(
+    (event: MouseEvent<HTMLCanvasElement>) => {
+      const coordinates = getRemoteCoordinates(event);
+
+      if (!coordinates) {
+        return;
+      }
+
+      latestMousePositionRef.current = coordinates;
+
+      if (mouseMoveTimerRef.current !== null) {
+        return;
+      }
+
+      mouseMoveTimerRef.current = window.setTimeout(() => {
+        mouseMoveTimerRef.current = null;
+
+        const position = latestMousePositionRef.current;
+
+        if (position) {
+          sendRemoteCommand({ type: "mouse_move", ...position });
+        }
+      }, MOUSE_MOVE_INTERVAL_MS);
+    },
+    [getRemoteCoordinates, sendRemoteCommand],
+  );
+
+
+  /* ================= MOUSE BUTTONS =================
+   * Real down/up events instead of synthetic clicks: dragging,
+   * text selection and window moving work, and Windows itself
+   * recognises double-clicks (previously a double-click sent
+   * four clicks).
    */
 
-  const handleMouseMove =
-    useCallback(
-      (
-        event: MouseEvent<HTMLCanvasElement>,
-      ) => {
+  const handleMouseDown = useCallback(
+    (event: MouseEvent<HTMLCanvasElement>) => {
+      event.preventDefault();
+      canvasRef.current?.focus();
 
-        const coordinates =
-          getRemoteCoordinates(event);
+      const button = BUTTON_NAMES[event.button];
+      const coordinates = getRemoteCoordinates(event);
 
-        if (!coordinates) {
-          return;
-        }
+      if (!button || !coordinates) {
+        return;
+      }
 
-        latestMousePositionRef.current =
-          coordinates;
+      latestMousePositionRef.current = coordinates;
+      flushMouseMove();
 
-        if (
-          mouseMoveTimerRef.current !==
-          null
-        ) {
-          return;
-        }
+      pressedButtonsRef.current.add(button);
 
-        mouseMoveTimerRef.current =
-          window.setTimeout(
-            () => {
+      sendRemoteCommand({ type: "mouse_down", button, ...coordinates });
+    },
+    [flushMouseMove, getRemoteCoordinates, sendRemoteCommand],
+  );
 
-              mouseMoveTimerRef.current =
-                null;
+  // Listen on window so releasing the button outside the canvas
+  // never leaves it stuck "down" on the remote PC.
+  useEffect(() => {
+    const onMouseUp = (event: globalThis.MouseEvent) => {
+      const button = BUTTON_NAMES[event.button];
 
-              const position =
-                latestMousePositionRef.current;
+      if (!button || !pressedButtonsRef.current.has(button)) {
+        return;
+      }
 
-              if (!position) {
-                return;
-              }
+      pressedButtonsRef.current.delete(button);
 
-              sendRemoteCommand({
-                type: "mouse_move",
-                x: position.x,
-                y: position.y,
-              });
-            },
-            MOUSE_MOVE_INTERVAL_MS,
-          );
-      },
-      [
-        getRemoteCoordinates,
-        sendRemoteCommand,
-      ],
-    );
+      const coordinates =
+        getRemoteCoordinates(event) ?? latestMousePositionRef.current;
+
+      if (!coordinates) {
+        return;
+      }
+
+      sendRemoteCommand({ type: "mouse_up", button, ...coordinates });
+    };
+
+    window.addEventListener("mouseup", onMouseUp);
+
+    return () => window.removeEventListener("mouseup", onMouseUp);
+  }, [getRemoteCoordinates, sendRemoteCommand]);
+
+  const handleContextMenu = useCallback(
+    (event: MouseEvent<HTMLCanvasElement>) => {
+      event.preventDefault();
+    },
+    [],
+  );
 
 
-  /*
-   * =========================================================
-   * LEFT CLICK
-   * =========================================================
+  /* ================= SCROLL =================
+   * Browser deltas are converted to Windows wheel units
+   * (120 = one notch) and coalesced every ~16 ms. Previously one
+   * wheel notch could scroll ~100 notches on the remote PC.
    */
 
-  const handleClick =
-    useCallback(
-      (
-        event: MouseEvent<HTMLCanvasElement>,
-      ) => {
+  useEffect(() => {
+    const canvas = canvasRef.current;
 
-        event.preventDefault();
+    if (!canvas) {
+      return;
+    }
 
-        const coordinates =
-          getRemoteCoordinates(event);
+    const toWheelUnits = (value: number, mode: number) => {
+      if (mode === 1) return value * 40;   // lines
+      if (mode === 2) return value * 800;  // pages
+      return value * 1.2;                  // pixels (100px ≈ 1 notch)
+    };
 
-        if (!coordinates) {
-          return;
-        }
-
-        sendRemoteCommand({
-          type: "mouse_click",
-          x: coordinates.x,
-          y: coordinates.y,
-          button: "left",
-          clicks: 1,
-        });
-      },
-      [
-        getRemoteCoordinates,
-        sendRemoteCommand,
-      ],
-    );
-
-
-  /*
-   * =========================================================
-   * DOUBLE CLICK
-   * =========================================================
-   */
-
-  const handleDoubleClick =
-    useCallback(
-      (
-        event: MouseEvent<HTMLCanvasElement>,
-      ) => {
-
-        event.preventDefault();
-
-        const coordinates =
-          getRemoteCoordinates(event);
-
-        if (!coordinates) {
-          return;
-        }
-
-        sendRemoteCommand({
-          type: "mouse_click",
-          x: coordinates.x,
-          y: coordinates.y,
-          button: "left",
-          clicks: 2,
-        });
-      },
-      [
-        getRemoteCoordinates,
-        sendRemoteCommand,
-      ],
-    );
-
-
-  /*
-   * =========================================================
-   * RIGHT CLICK
-   * =========================================================
-   */
-
-  const handleContextMenu =
-    useCallback(
-      (
-        event: MouseEvent<HTMLCanvasElement>,
-      ) => {
-
-        event.preventDefault();
-
-        const coordinates =
-          getRemoteCoordinates(event);
-
-        if (!coordinates) {
-          return;
-        }
-
-        sendRemoteCommand({
-          type: "mouse_click",
-          x: coordinates.x,
-          y: coordinates.y,
-          button: "right",
-          clicks: 1,
-        });
-      },
-      [
-        getRemoteCoordinates,
-        sendRemoteCommand,
-      ],
-    );
-
-
-  /*
- * =========================================================
- * SCROLL
- * =========================================================
- */
-
-const handleWheel =
-  useCallback(
-    (
-      event: WheelEvent<HTMLCanvasElement>,
-    ) => {
-
+    const onWheel = (event: globalThis.WheelEvent) => {
       event.preventDefault();
 
-      /*
-       * Send scroll commands immediately.
-       *
-       * Browser wheel delta can vary significantly between
-       * mouse wheels and trackpads, so normalize it into
-       * useful Windows wheel units.
-       */
+      wheelDeltaRef.current -= toWheelUnits(event.deltaY, event.deltaMode);
+      wheelHDeltaRef.current += toWheelUnits(event.deltaX, event.deltaMode);
 
-      const rawDelta = event.deltaY;
-
-      if (rawDelta === 0) {
+      if (wheelTimerRef.current !== null) {
         return;
       }
 
-      /*
-       * Convert browser delta into remote scroll units.
-       *
-       * Positive deltaY = scroll down
-       * Negative deltaY = scroll up
-       *
-       * Increase the multiplier to make scrolling faster.
-       */
+      wheelTimerRef.current = window.setTimeout(() => {
+        wheelTimerRef.current = null;
 
-      const amount = Math.max(
-        -12,
-        Math.min(
-          12,
-          Math.round(-rawDelta / 20),
-        ),
-      );
+        const delta = Math.round(wheelDeltaRef.current);
+        const hdelta = Math.round(wheelHDeltaRef.current);
 
-      if (amount === 0) {
+        wheelDeltaRef.current = 0;
+        wheelHDeltaRef.current = 0;
+
+        if (delta === 0 && hdelta === 0) {
+          return;
+        }
+
+        sendRemoteCommand({
+          type: "scroll",
+          delta: Math.max(-2400, Math.min(2400, delta)),
+          hdelta: Math.max(-2400, Math.min(2400, hdelta)),
+          amount: Math.sign(delta),
+        });
+      }, WHEEL_INTERVAL_MS);
+    };
+
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, [sendRemoteCommand]);
+
+
+  /* ================= KEYBOARD ================= */
+
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLCanvasElement>) => {
+      // Keep the browser from acting on keys meant for the remote PC
+      // (Tab, arrows, Ctrl+F, Ctrl+S, ...). The browser still keeps
+      // Ctrl+W / Ctrl+T / Alt+Tab; those cannot be intercepted.
+      event.preventDefault();
+
+      if (MODIFIER_KEYS.has(event.key)) {
         return;
       }
 
-      sendRemoteCommand({
-        type: "scroll",
-        amount,
-      });
+      const hasCommandModifier = event.ctrlKey || event.altKey || event.metaKey;
+
+      // Printable characters: send the character itself. This handles
+      // Shift, Caps Lock and the user's keyboard layout correctly, and
+      // key repeat (holding a key) works.
+      if (!hasCommandModifier && event.key.length === 1) {
+        sendRemoteCommand({ type: "type_text", text: event.key });
+        return;
+      }
+
+      const key = shortcutKey(event);
+
+      const modifiers: string[] = [];
+      if (event.ctrlKey) modifiers.push("ctrl");
+      if (event.altKey) modifiers.push("alt");
+      if (event.shiftKey) modifiers.push("shift");
+      if (event.metaKey) modifiers.push("win");
+
+      if (modifiers.length > 0) {
+        sendRemoteCommand({ type: "hotkey", keys: [...modifiers, key] });
+        return;
+      }
+
+      sendRemoteCommand({ type: "key_press", key });
     },
     [sendRemoteCommand],
   );
-  useEffect(() => {
-  const canvas = canvasRef.current;
-
-  if (!canvas) {
-    return;
-  }
-
-  const wheelListener: EventListener = (event) => {
-  handleWheel(
-    event as unknown as WheelEvent<HTMLCanvasElement>,
-  );
-};
-
-  canvas.addEventListener(
-    "wheel",
-    wheelListener,
-    {
-      passive: false,
-    },
-  );
-
-  return () => {
-    canvas.removeEventListener(
-      "wheel",
-      wheelListener,
-    );
-  };
-}, [handleWheel]);
 
 
-  /*
-   * =========================================================
-   * KEYBOARD
-   * =========================================================
-   */
+  /* ================= END SESSION ================= */
 
-  const handleKeyDown =
-    useCallback(
-      (
-        event: KeyboardEvent<HTMLCanvasElement>,
-      ) => {
-
-        if (
-          event.key === "Tab" ||
-          event.key === "ArrowUp" ||
-          event.key === "ArrowDown" ||
-          event.key === "ArrowLeft" ||
-          event.key === "ArrowRight" ||
-          event.key === "PageUp" ||
-          event.key === "PageDown" ||
-          event.key === "Home" ||
-          event.key === "End" ||
-          event.key === " "
-        ) {
-
-          event.preventDefault();
-        }
-
-        if (event.repeat) {
-          return;
-        }
-
-        const modifiers: string[] = [];
-
-        if (event.ctrlKey) {
-          modifiers.push("ctrl");
-        }
-
-        if (event.altKey) {
-          modifiers.push("alt");
-        }
-
-        if (event.shiftKey) {
-          modifiers.push("shift");
-        }
-
-        if (event.metaKey) {
-          modifiers.push("win");
-        }
-
-        if (modifiers.length > 0) {
-
-          sendRemoteCommand({
-            type: "hotkey",
-            keys: [
-              ...modifiers,
-              event.key.toLowerCase(),
-            ],
-          });
-
-          return;
-        }
-
-        const keyMap: Record<string, string> = {
-          " ": "space",
-          ArrowUp: "up",
-          ArrowDown: "down",
-          ArrowLeft: "left",
-          ArrowRight: "right",
-          Enter: "enter",
-          Escape: "esc",
-          Backspace: "backspace",
-          Delete: "delete",
-          Tab: "tab",
-          Home: "home",
-          End: "end",
-          PageUp: "pageup",
-          PageDown: "pagedown",
-          Insert: "insert",
-          CapsLock: "capslock",
-          Shift: "shift",
-          Control: "ctrl",
-          Alt: "alt",
-        };
-
-        const key =
-          keyMap[event.key] ??
-          event.key.toLowerCase();
-
-        sendRemoteCommand({
-          type: "key_press",
-          key,
-        });
-      },
-      [sendRemoteCommand],
-    );
-
-
-  /*
-   * =========================================================
-   * END SESSION
-   * =========================================================
-   */
-
-  const endSession =
-    async () => {
-
-      if (
-        !Number.isFinite(effectiveSessionId) ||
-        effectiveSessionId <= 0
-      ) {
-
-        window.close();
-        return;
-      }
-
-      viewerStoppedRef.current =
-        true;
-
-      setRemoteStatus("ended");
-
-      if (
-        mouseMoveTimerRef.current !==
-        null
-      ) {
-
-        window.clearTimeout(
-          mouseMoveTimerRef.current,
-        );
-
-        mouseMoveTimerRef.current =
-          null;
-      }
-
-      if (
-        wheelTimerRef.current !==
-        null
-      ) {
-
-        window.clearTimeout(
-          wheelTimerRef.current,
-        );
-
-        wheelTimerRef.current =
-          null;
-      }
-
-      try {
-
-        await disconnectRemoteSession(
-          effectiveSessionId,
-          token,
-        );
-
-      } catch (error) {
-
-        console.error(
-          "[REMOTE] Failed to end session:",
-          error,
-        );
-      }
-
-      const streamSocket =
-        streamSocketRef.current;
-
-      streamSocketRef.current =
-        null;
-
-      if (streamSocket) {
-
-        try {
-          streamSocket.close(1000, "session ended");
-        } catch {
-          // ignore
-        }
-      }
-
-      const controlSocket =
-        controlSocketRef.current;
-
-      controlSocketRef.current =
-        null;
-
-      if (controlSocket) {
-
-        try {
-          controlSocket.close(1000, "session ended");
-        } catch {
-          // ignore
-        }
-      }
-
-      pendingFrameRef.current =
-        null;
-
-      /*
-       * Browser security may prevent window.close()
-       * if this tab was not opened by script. In that
-       * case the page remains visible as ENDED, but the
-       * backend session is already strictly closed.
-       */
-
+  const endSession = async () => {
+    if (!Number.isFinite(effectiveSessionId) || effectiveSessionId <= 0) {
       window.close();
-    };
+      return;
+    }
+
+    // Release any button still held on the remote side.
+    pressedButtonsRef.current.forEach((button) => {
+      const position = latestMousePositionRef.current ?? { nx: 0.5, ny: 0.5 };
+      sendRemoteCommand({ type: "mouse_up", button, ...position });
+    });
+    pressedButtonsRef.current.clear();
+
+    viewerStoppedRef.current = true;
+    setRemoteStatus("ended");
+
+    if (mouseMoveTimerRef.current !== null) {
+      window.clearTimeout(mouseMoveTimerRef.current);
+      mouseMoveTimerRef.current = null;
+    }
+
+    if (wheelTimerRef.current !== null) {
+      window.clearTimeout(wheelTimerRef.current);
+      wheelTimerRef.current = null;
+    }
+
+    try {
+      await disconnectRemoteSession(effectiveSessionId, token);
+    } catch (error) {
+      console.error("[REMOTE] Failed to end session:", error);
+    }
+
+    const streamSocket = streamSocketRef.current;
+    streamSocketRef.current = null;
+
+    if (streamSocket) {
+      try {
+        streamSocket.close(1000, "session ended");
+      } catch {
+        // ignore
+      }
+    }
+
+    const controlSocket = controlSocketRef.current;
+    controlSocketRef.current = null;
+
+    if (controlSocket) {
+      try {
+        controlSocket.close(1000, "session ended");
+      } catch {
+        // ignore
+      }
+    }
+
+    pendingFrameRef.current = null;
+
+    // Browser security may block window.close() if this tab was not
+    // opened by script; the session is already closed on the backend.
+    window.close();
+  };
 
 
-  /*
-   * =========================================================
-   * RENDER
-   * =========================================================
-   */
+  /* ================= RENDER ================= */
 
   return (
     <div
@@ -1473,7 +881,6 @@ const handleWheel =
         fontFamily: "Inter, system-ui, sans-serif",
       }}
     >
-
       <header
         style={{
           height: "58px",
@@ -1482,52 +889,26 @@ const handleWheel =
           alignItems: "center",
           justifyContent: "space-between",
           padding: "0 20px",
-          borderBottom:
-            "1px solid rgba(255,255,255,0.08)",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
           background: "#0b1727",
         }}
       >
-
         <div>
-
-          <strong
-            style={{
-              fontSize: "16px",
-            }}
-          >
+          <strong style={{ fontSize: "16px" }}>
             TechAIPILOT Remote Session
           </strong>
 
-          <div
-            style={{
-              fontSize: "12px",
-              opacity: 0.65,
-              marginTop: "2px",
-            }}
-          >
-            Remote Endpoint • Session #
-            {effectiveSessionId}
+          <div style={{ fontSize: "12px", opacity: 0.65, marginTop: "2px" }}>
+            Remote Endpoint • Session #{effectiveSessionId}
           </div>
-
         </div>
 
-
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-          }}
-        >
-
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <span
             style={{
               fontSize: "12px",
               fontWeight: 700,
-              color:
-                remoteStatus === "live"
-                  ? "#67e8f9"
-                  : "#94a3b8",
+              color: remoteStatus === "live" ? "#67e8f9" : "#94a3b8",
             }}
           >
             ●{" "}
@@ -1540,13 +921,10 @@ const handleWheel =
               : "CONNECTING"}
           </span>
 
-
           <button
             type="button"
             onClick={endSession}
-            disabled={
-              remoteStatus === "ended"
-            }
+            disabled={remoteStatus === "ended"}
             style={{
               border: "0",
               borderRadius: "8px",
@@ -1554,23 +932,14 @@ const handleWheel =
               background: "#dc2626",
               color: "#ffffff",
               fontWeight: 700,
-              cursor:
-                remoteStatus === "ended"
-                  ? "default"
-                  : "pointer",
-              opacity:
-                remoteStatus === "ended"
-                  ? 0.5
-                  : 1,
+              cursor: remoteStatus === "ended" ? "default" : "pointer",
+              opacity: remoteStatus === "ended" ? 0.5 : 1,
             }}
           >
             End Session
           </button>
-
         </div>
-
       </header>
-
 
       <main
         style={{
@@ -1584,7 +953,6 @@ const handleWheel =
           background: "#02060b",
         }}
       >
-
         <div
           ref={screenRef}
           style={{
@@ -1597,37 +965,25 @@ const handleWheel =
             outline: "none",
           }}
         >
-
           <canvas
             ref={canvasRef}
             tabIndex={0}
-              onMouseMove={handleMouseMove}
-              onClick={handleClick}
-              onDoubleClick={handleDoubleClick}
-              onContextMenu={handleContextMenu}
-              onKeyDown={handleKeyDown}
-              onMouseDown={() => {
-                canvasRef.current?.focus();
-              }}
+            onMouseMove={handleMouseMove}
+            onMouseDown={handleMouseDown}
+            onContextMenu={handleContextMenu}
+            onKeyDown={handleKeyDown}
             style={{
-              maxWidth: "100%",
-              maxHeight: "100%",
-              width: "auto",
-              height: "auto",
-              objectFit: "contain",
               cursor: "default",
               userSelect: "none",
               WebkitUserSelect: "none",
               background: "#000000",
               display: "block",
+              outline: "none",
             }}
           />
-
         </div>
 
-
         {remoteStatus !== "live" && (
-
           <div
             style={{
               position: "absolute",
@@ -1641,7 +997,6 @@ const handleWheel =
               pointerEvents: "none",
             }}
           >
-
             <strong>
               {remoteStatus === "connecting"
                 ? "Connecting to remote screen..."
@@ -1651,21 +1006,11 @@ const handleWheel =
             </strong>
 
             {remoteError && (
-              <span
-                style={{
-                  fontSize: "12px",
-                }}
-              >
-                {remoteError}
-              </span>
+              <span style={{ fontSize: "12px" }}>{remoteError}</span>
             )}
-
           </div>
-
         )}
-
       </main>
-
 
       <footer
         style={{
@@ -1674,8 +1019,7 @@ const handleWheel =
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          borderTop:
-            "1px solid rgba(255,255,255,0.08)",
+          borderTop: "1px solid rgba(255,255,255,0.08)",
           background: "#0b1727",
           color: "#94a3b8",
           fontSize: "12px",
@@ -1683,7 +1027,6 @@ const handleWheel =
       >
         Mouse • Keyboard • Scroll • Remote Control
       </footer>
-
     </div>
   );
 }
