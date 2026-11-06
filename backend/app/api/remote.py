@@ -843,6 +843,64 @@ def get_remote_session(
 
 
 # =========================================================
+# GET REMOTE SESSION (VIEWER)
+# =========================================================
+
+
+@router.get(
+    "/sessions/{session_id}/viewer"
+)
+def get_remote_session_for_viewer(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+
+    session = (
+        db.query(RemoteSession)
+        .filter(
+            RemoteSession.id == session_id
+        )
+        .first()
+    )
+
+    if not session:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Remote session not found",
+        )
+
+    if not user_owns_session(
+        session,
+        current_user,
+        db,
+    ):
+
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this session.",
+        )
+
+    agent = (
+        db.query(Agent)
+        .filter(
+            Agent.device_id == session.device_id
+        )
+        .first()
+    )
+
+    return {
+        "session_id": session.id,
+        "device_id": session.device_id,
+        "hostname": agent.hostname if agent else None,
+        "status": session.status,
+        "started_at": session.started_at,
+        "ended_at": session.ended_at,
+    }
+
+
+# =========================================================
 # END REMOTE SESSION
 # =========================================================
 
@@ -1488,15 +1546,9 @@ async def remote_agent_control(
 
         while True:
 
-            message = (
-                await websocket.receive_text()
-            )
-
-            print(
-                f"[CONTROL] Agent message "
-                f"for session {session_id}: "
-                f"{message}"
-            )
+            # The agent sends nothing on this socket today. Keep
+            # reading so disconnects and pings are handled.
+            await websocket.receive_text()
 
     except WebSocketDisconnect:
 

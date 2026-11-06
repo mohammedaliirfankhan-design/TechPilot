@@ -12,8 +12,6 @@ import type {
 
 import {
   disconnectRemoteSession,
-  getAgents,
-  getRemoteSession,
   getRemoteWebSocketBaseUrl,
 } from "../api";
 
@@ -56,6 +54,35 @@ const CONTROL_RETRY_MS = 1000;
 const FRAME_HEADER_BYTES = 12;
 const FRAME_HEADER_V2_BYTES = 14;
 const SESSION_POLL_MS = 5000;
+
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
+).replace(/\/+$/, "");
+
+type ViewerSessionInfo = {
+  session_id: number;
+  device_id: string;
+  hostname: string | null;
+  status: string;
+};
+
+// Session status for the signed-in viewer (needs backend
+// GET /api/v1/remote/sessions/{id}/viewer).
+async function fetchViewerSession(
+  sessionId: number,
+  token: string,
+): Promise<ViewerSessionInfo> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/remote/sessions/${sessionId}/viewer`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Session status unavailable: ${response.status}`);
+  }
+
+  return (await response.json()) as ViewerSessionInfo;
+}
 
 const BUTTON_NAMES: Record<number, MouseButtonName> = {
   0: "left",
@@ -865,12 +892,10 @@ export default function RemoteSession({
 
     void (async () => {
       try {
-        const session = await getRemoteSession(effectiveSessionId);
-        const agents = await getAgents(token);
-        const agent = agents.find((item) => item.device_id === session.device_id);
+        const session = await fetchViewerSession(effectiveSessionId, token);
 
         if (!cancelled) {
-          setDeviceName(agent?.hostname ?? session.device_id ?? null);
+          setDeviceName(session.hostname ?? session.device_id ?? null);
         }
       } catch {
         // The name is cosmetic; the session works without it.
@@ -894,7 +919,7 @@ export default function RemoteSession({
       }
 
       try {
-        const session = await getRemoteSession(effectiveSessionId);
+        const session = await fetchViewerSession(effectiveSessionId, token);
 
         if (session.status === "ENDED") {
           viewerStoppedRef.current = true;
@@ -908,7 +933,7 @@ export default function RemoteSession({
     }, SESSION_POLL_MS);
 
     return () => window.clearInterval(interval);
-  }, [effectiveSessionId]);
+  }, [effectiveSessionId, token]);
 
   // Track fullscreen; while fullscreen, ask the browser to pass system
   // keys (Windows key, Alt+Tab, Esc) to the page where supported.
