@@ -1,3 +1,4 @@
+import Logo from "../components/Logo";
 import "../tokens.css";
 import "./landing.css";
 
@@ -97,9 +98,7 @@ function Landing({ onGetStarted, onLogin }: LandingProps) {
       <header className="tpl-header">
         <div className="tpl-container tpl-nav">
           <a className="tpl-brand" href="#top" aria-label="TechAIPILOT home">
-            <span className="tpl-brand-mark" aria-hidden="true">
-              <span />
-            </span>
+            <Logo size={30} />
             <span className="tpl-brand-name">TechAIPILOT</span>
           </a>
 

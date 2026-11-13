@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 
 import { getAgents, type Agent } from "../api";
+import {
+  LATEST_AGENT_VERSION,
+  deviceName,
+  formatDate,
+  formatDateTime,
+  isOlderVersion,
+} from "../lib/agentVersion";
 
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
 ).replace(/\/+$/, "");
-
-// The newest agent version available. Devices below this need the new installer.
-const LATEST_AGENT_VERSION = "1.2.0";
 
 type Page = "home" | "devices" | "network-security";
 
@@ -27,51 +31,6 @@ type HomeProps = {
   onNavigate: (page: Page) => void;
   onOpenDevice: (deviceId: string) => void;
 };
-
-function isOlderVersion(version: string, latest: string): boolean {
-  const a = version.split(".").map((part) => parseInt(part, 10) || 0);
-  const b = latest.split(".").map((part) => parseInt(part, 10) || 0);
-
-  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
-    const left = a[i] ?? 0;
-    const right = b[i] ?? 0;
-
-    if (left !== right) {
-      return left < right;
-    }
-  }
-
-  return false;
-}
-
-function formatDate(value: string): string {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Unknown";
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(date);
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Unknown";
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
 
 function Home({ token, onNavigate, onOpenDevice }: HomeProps) {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -249,8 +208,12 @@ function Home({ token, onNavigate, onOpenDevice }: HomeProps) {
                             className="tph-device"
                             onClick={() => onOpenDevice(agent.device_id)}
                           >
-                            <strong>{agent.hostname}</strong>
-                            <span>{agent.device_id}</span>
+                            <strong>{deviceName(agent)}</strong>
+                            <span>
+                              {agent.display_name
+                                ? `${agent.hostname} · ${agent.device_id}`
+                                : agent.device_id}
+                            </span>
                           </button>
                         </td>
                         <td>

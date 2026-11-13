@@ -810,3 +810,55 @@
     font-size: 18px;
   }
 }
+
+/* ================= RENAME + DOWNLOAD (release 1.3) ================= */
+
+.tpp-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tpp-name-row h2 {
+  overflow-wrap: anywhere;
+}
+
+.tpp-rename-btn {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.tpp-rename {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.tpp-rename input {
+  width: min(360px, 100%);
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--tp-accent);
+  border-radius: var(--tp-radius-sm);
+  background: var(--tp-sunken);
+  color: var(--tp-text);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.tpp-rename input:focus {
+  outline: none;
+}
+
+.tpp-rename input::placeholder {
+  color: var(--tp-text-muted);
+  font-weight: 400;
+}
+
+.tpp-download {
+  align-self: flex-start;
+}

@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 
+import Logo from "./Logo";
+
 type Page = "home" | "devices" | "network-security";
 
 type SidebarProps = {
@@ -129,9 +131,7 @@ function Sidebar({
             onClick={() => handleNavigate("home")}
             aria-label="TechAIPILOT home"
           >
-            <span className="tpa-brand-mark" aria-hidden="true">
-              <span />
-            </span>
+            <Logo size={30} />
             <span className="tpa-brand-name">TechAIPILOT</span>
           </button>
 

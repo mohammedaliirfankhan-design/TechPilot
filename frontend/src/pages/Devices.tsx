@@ -7,12 +7,14 @@ import {
 
 import {
   createDeviceEnrollment,
+  downloadAgentInstaller,
   getAgents,
   type Agent,
   type DeviceEnrollmentResponse,
 } from "../api";
 
 import {
+  deviceName,
   formatDate,
   formatDateTime,
   isOlderVersion,
@@ -41,6 +43,8 @@ function Devices({
   const [enrollmentLoading, setEnrollmentLoading] = useState(false);
   const [enrollmentError, setEnrollmentError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
@@ -84,7 +88,7 @@ function Devices({
     const query = searchQuery.trim().toLowerCase();
 
     const sorted = [...agents].sort((a, b) =>
-      a.hostname.localeCompare(b.hostname),
+      deviceName(a).localeCompare(deviceName(b)),
     );
 
     if (!query) {
@@ -94,6 +98,7 @@ function Devices({
     return sorted.filter((agent) =>
       [
         agent.hostname,
+        agent.display_name ?? "",
         agent.device_id,
         agent.operating_system,
         agent.os_version,
@@ -128,6 +133,7 @@ function Devices({
     setEnrollment(null);
     setEnrollmentError(null);
     setCopied(false);
+    setDownloadError(null);
 
     void handleCreateEnrollment();
   }
@@ -140,6 +146,21 @@ function Devices({
 
     // Return focus to the button that opened the dialog.
     window.setTimeout(() => addButtonRef.current?.focus(), 0);
+  }
+
+  async function handleDownloadInstaller() {
+    try {
+      setDownloading(true);
+      setDownloadError(null);
+
+      await downloadAgentInstaller(token);
+    } catch (err) {
+      setDownloadError(
+        err instanceof Error ? err.message : "Download failed.",
+      );
+    } finally {
+      setDownloading(false);
+    }
   }
 
   async function handleCopyCode() {
@@ -240,7 +261,7 @@ function Devices({
           filteredAgents.length === 0 && (
             <div className="tpp-state">
               <strong>No devices match "{searchQuery.trim()}".</strong>
-              <p>Try a hostname, device ID or Windows version.</p>
+              <p>Try a name, hostname, device ID or Windows version.</p>
             </div>
           )}
 
@@ -275,8 +296,12 @@ function Devices({
                           onDeviceSelect?.(agent.device_id);
                         }}
                       >
-                        <strong>{agent.hostname}</strong>
-                        <span>{agent.device_id}</span>
+                        <strong>{deviceName(agent)}</strong>
+                        <span>
+                          {agent.display_name
+                            ? `${agent.hostname} · ${agent.device_id}`
+                            : agent.device_id}
+                        </span>
                       </button>
                     </td>
                     <td>
@@ -377,10 +402,46 @@ function Devices({
             {!enrollmentLoading && !enrollmentError && enrollment && (
               <div className="tpp-enroll">
                 <ol className="tpp-enroll-steps">
+                  <li>Download the installer and copy it to the PC.</li>
                   <li>Copy the code below.</li>
-                  <li>Run <strong>TechAIPILOTAgentSetup.exe</strong> on the PC.</li>
-                  <li>Paste the code when the installer asks for it.</li>
+                  <li>Run <strong>TechAIPILOTAgentSetup.exe</strong> on the PC and paste the code when asked.</li>
                 </ol>
+
+                <button
+                  type="button"
+                  className="tpa-btn tpp-btn-outline tpp-download"
+                  onClick={() => void handleDownloadInstaller()}
+                  disabled={downloading}
+                >
+                  <svg
+                    aria-hidden="true"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M12 4v11" />
+                    <path d="m7 10 5 5 5-5" />
+                    <path d="M5 20h14" />
+                  </svg>
+                  {downloading ? "Downloading…" : "Download installer"}
+                </button>
+
+                {downloadError && (
+                  <p className="tpp-inline-error" role="alert">
+                    {downloadError}
+                  </p>
+                )}
+
+                <p className="tpp-muted tpp-small">
+                  Windows may warn that the file isn't commonly downloaded,
+                  and SmartScreen may ask you to confirm before it runs.
+                  The installer is not code-signed yet.
+                </p>
 
                 <div className="tpp-code" aria-label="Enrollment code">
                   {enrollment.enrollment_code}

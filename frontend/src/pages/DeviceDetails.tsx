@@ -1,7 +1,9 @@
 import {
   useEffect,
+  useRef,
   useState,
 } from "react";
+import type { FormEvent } from "react";
 
 import {
   closeShellSession,
@@ -11,12 +13,14 @@ import {
   getAgents,
   getShellCommand,
   getShellSession,
+  renameDevice,
   type Agent,
   type ShellSession,
   type ShellType,
 } from "../api";
 
 import {
+  deviceName,
   formatDateTime,
   isOlderVersion,
 } from "../lib/agentVersion";
@@ -57,6 +61,63 @@ function DeviceDetails({
 }: DeviceDetailsProps) {
   const [device, setDevice] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
+
+  /* ================= RENAME ================= */
+
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState("");
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const renameButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (editingName) {
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    }
+  }, [editingName]);
+
+  const startRename = () => {
+    if (!device) {
+      return;
+    }
+
+    setNameDraft(device.display_name ?? "");
+    setNameError("");
+    setEditingName(true);
+  };
+
+  const cancelRename = () => {
+    setEditingName(false);
+    setNameError("");
+    window.setTimeout(() => renameButtonRef.current?.focus(), 0);
+  };
+
+  const saveRename = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!device || savingName) {
+      return;
+    }
+
+    try {
+      setSavingName(true);
+      setNameError("");
+
+      const updated = await renameDevice(device.device_id, nameDraft, token);
+
+      setDevice({ ...device, display_name: updated.display_name ?? null });
+      setEditingName(false);
+      window.setTimeout(() => renameButtonRef.current?.focus(), 0);
+    } catch (error) {
+      setNameError(
+        error instanceof Error ? error.message : "Couldn't rename the device.",
+      );
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   /* ================= REMOTE SCREEN ================= */
 
@@ -351,7 +412,87 @@ function DeviceDetails({
 
       <section className="tpp-card tpp-device-head">
         <div className="tpp-device-title">
-          <h2>{device.hostname}</h2>
+          {editingName ? (
+            <form className="tpp-rename" onSubmit={saveRename}>
+              <label className="tpa-sr-only" htmlFor="tpp-rename-input">
+                Device name
+              </label>
+              <input
+                id="tpp-rename-input"
+                ref={nameInputRef}
+                type="text"
+                value={nameDraft}
+                maxLength={100}
+                placeholder={device.hostname}
+                onChange={(event) => setNameDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelRename();
+                  }
+                }}
+                disabled={savingName}
+              />
+              <button
+                type="submit"
+                className="tpa-btn tpa-btn-primary"
+                disabled={savingName}
+              >
+                {savingName ? "Saving…" : "Save"}
+              </button>
+              <button
+                type="button"
+                className="tpa-btn tpp-btn-outline"
+                onClick={cancelRename}
+                disabled={savingName}
+              >
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <div className="tpp-name-row">
+              <h2>{deviceName(device)}</h2>
+              <button
+                ref={renameButtonRef}
+                type="button"
+                className="tpa-icon-btn tpp-rename-btn"
+                onClick={startRename}
+                aria-label="Rename device"
+                title="Rename device"
+              >
+                <svg
+                  aria-hidden="true"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-4-4L4 16v4Z" />
+                  <path d="m13.5 6.5 4 4" />
+                </svg>
+              </button>
+            </div>
+          )}
+
+          {editingName && (
+            <p className="tpp-muted tpp-small">
+              Leave empty to show the hostname, {device.hostname}.
+            </p>
+          )}
+
+          {!editingName && device.display_name && (
+            <p className="tpp-muted tpp-small">Hostname: {device.hostname}</p>
+          )}
+
+          {nameError && (
+            <p className="tpp-inline-error" role="alert">
+              {nameError}
+            </p>
+          )}
           <p className="tpp-muted">
             {device.operating_system} {device.os_version} · Agent v
             {device.agent_version}
@@ -446,7 +587,7 @@ function DeviceDetails({
               <div className="tpp-terminal" aria-live="polite">
                 <div className="tpp-terminal-bar">
                   <span>{shellLabel}</span>
-                  <span>{device.hostname}</span>
+                  <span>{deviceName(device)}</span>
                 </div>
 
                 <pre>
@@ -530,6 +671,12 @@ function DeviceDetails({
           </h2>
 
           <dl className="tpp-info">
+            {device.display_name && (
+              <div>
+                <dt>Name in console</dt>
+                <dd>{device.display_name}</dd>
+              </div>
+            )}
             <div>
               <dt>Hostname</dt>
               <dd>{device.hostname}</dd>

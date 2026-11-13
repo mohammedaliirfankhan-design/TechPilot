@@ -7,7 +7,11 @@ from app.api.auth import get_current_user
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.user import User
-from app.schemas.agent import AgentRegisterRequest, AgentResponse
+from app.schemas.agent import (
+    AgentRegisterRequest,
+    AgentRenameRequest,
+    AgentResponse,
+)
 from app.security.agent_auth import (
     generate_agent_token,
     get_current_agent,
@@ -90,6 +94,60 @@ def get_agents(
     )
 
     return agents
+
+
+@router.patch(
+    "/{device_id}/display-name",
+    response_model=AgentResponse,
+)
+def rename_agent(
+    device_id: str,
+    payload: AgentRenameRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Set the name shown in the console. Only the display name
+    changes; the hostname and device ID stay as the agent reported.
+    """
+
+    organization = get_user_default_organization(
+        db,
+        current_user,
+    )
+
+    if organization is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Your account must belong to exactly one active "
+                "organization to manage devices."
+            ),
+        )
+
+    agent = (
+        db.query(Agent)
+        .filter(
+            Agent.device_id == device_id,
+            Agent.organization_id == organization.id,
+        )
+        .first()
+    )
+
+    if not agent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found.",
+        )
+
+    name = (payload.display_name or "").strip()
+
+    agent.display_name = name or None
+
+    db.commit()
+    db.refresh(agent)
+
+    return agent
 
 
 @router.post(

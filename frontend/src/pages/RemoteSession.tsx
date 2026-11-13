@@ -15,6 +15,7 @@ import {
   getRemoteWebSocketBaseUrl,
 } from "../api";
 
+import Logo from "../components/Logo";
 import "../session.css";
 
 
@@ -1152,6 +1153,7 @@ export default function RemoteSession({
     <div ref={rootRef} className="tps">
       <header className="tps-bar">
         <div className="tps-title">
+          <Logo size={26} />
           <strong>{deviceName ?? "Remote session"}</strong>
           <span className="tps-muted">Session {effectiveSessionId}</span>
           <span className={`tps-status tps-status-${remoteStatus}`} role="status">

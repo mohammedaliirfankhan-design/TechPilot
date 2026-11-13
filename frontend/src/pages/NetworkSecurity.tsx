@@ -5,7 +5,7 @@ import {
   type Agent,
 } from "../api";
 
-import { formatDateTime } from "../lib/agentVersion";
+import { deviceName, formatDateTime } from "../lib/agentVersion";
 
 import "../pages.css";
 
@@ -352,6 +352,11 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
   };
 
   const snapshot = deviceDetails?.snapshot ?? null;
+
+  // The network endpoint reports the hostname; use the console name if set.
+  const selectedAgent = devices.find(
+    (item) => item.device_id === deviceDetails?.device.device_id,
+  );
   const findings = deviceDetails ? deriveFindings(deviceDetails) : [];
 
   const tabs: Array<{ key: TabKey; label: string; count: number }> = [
@@ -444,8 +449,12 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
                       onClick={() => setSelectedDeviceId(device.device_id)}
                       aria-current={selected ? "true" : undefined}
                     >
-                      <strong>{device.hostname}</strong>
-                      <span>{device.device_id}</span>
+                      <strong>{deviceName(device)}</strong>
+                      <span>
+                        {device.display_name
+                          ? `${device.hostname} · ${device.device_id}`
+                          : device.device_id}
+                      </span>
                     </button>
                   </li>
                 );
@@ -470,7 +479,11 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
               {/* Device header */}
               <section className="tpp-card tpp-net-head" aria-busy={deviceLoading}>
                 <div>
-                  <h2>{deviceDetails.device.hostname}</h2>
+                  <h2>
+                    {selectedAgent
+                      ? deviceName(selectedAgent)
+                      : deviceDetails.device.hostname}
+                  </h2>
                   <p className="tpp-muted tpp-small">
                     {deviceDetails.device.operating_system}{" "}
                     {deviceDetails.device.os_version} · Agent v

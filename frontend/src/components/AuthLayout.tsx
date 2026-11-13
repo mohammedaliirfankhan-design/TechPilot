@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import Logo from "./Logo";
 import "../auth.css";
 
 type AuthLayoutProps = {
@@ -29,9 +30,7 @@ function AuthLayout({ title, subtitle, onBack, children }: AuthLayoutProps) {
     <div className="tpu">
       <aside className="tpu-side" aria-hidden="true">
         <div className="tpu-brand">
-          <span className="tpu-mark">
-            <span />
-          </span>
+          <Logo size={30} />
           TechAIPILOT
         </div>
 
@@ -56,9 +55,7 @@ function AuthLayout({ title, subtitle, onBack, children }: AuthLayoutProps) {
       <main className="tpu-main">
         <div className="tpu-top">
           <div className="tpu-brand tpu-brand-mobile">
-            <span className="tpu-mark" aria-hidden="true">
-              <span />
-            </span>
+            <Logo size={30} />
             TechAIPILOT
           </div>
 

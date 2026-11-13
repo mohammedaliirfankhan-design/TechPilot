@@ -905,7 +905,7 @@ def get_remote_session_for_viewer(
     return {
         "session_id": session.id,
         "device_id": session.device_id,
-        "hostname": agent.hostname if agent else None,
+        "hostname": (agent.display_name or agent.hostname) if agent else None,
         "status": session.status,
         "started_at": session.started_at,
         "ended_at": session.ended_at,

@@ -727,3 +727,9 @@
     transition: none;
   }
 }
+
+/* Logo (release 1.3) */
+.tp-logo {
+  display: block;
+  flex-shrink: 0;
+}

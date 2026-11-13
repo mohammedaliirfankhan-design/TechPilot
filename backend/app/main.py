@@ -11,6 +11,7 @@ from app.api.organizations import router as organizations_router
 from app.api.device_enrollment import router as device_enrollment_router
 from app.api.network_security import router as network_security_router
 from app.api import shell
+from app.api.downloads import router as downloads_router
 
 
 app = FastAPI(
@@ -35,6 +36,7 @@ app.include_router(auth_router)
 app.include_router(organizations_router)
 app.include_router(device_enrollment_router)
 app.include_router(shell.router)
+app.include_router(downloads_router)
 
 @app.get("/")
 def root():

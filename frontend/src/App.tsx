@@ -13,6 +13,7 @@ import Login from "./pages/login";
 import CreateAccount from "./pages/CreateAccount";
 import Landing from "./pages/Landing";
 
+import Logo from "./components/Logo";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 
@@ -216,9 +217,7 @@ function App() {
   if (authLoading) {
     return (
       <div className="tpa-loading" role="status">
-        <span className="tpa-brand-mark" aria-hidden="true">
-          <span />
-        </span>
+        <Logo size={44} />
         <p>Checking your session…</p>
       </div>
     );

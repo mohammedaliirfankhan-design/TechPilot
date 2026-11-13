@@ -50,3 +50,11 @@ export function formatDateTime(value: string): string {
     minute: "2-digit",
   }).format(date);
 }
+
+// Name shown in the console: the chosen display name, else the hostname.
+export function deviceName(agent: {
+  hostname: string;
+  display_name?: string | null;
+}): string {
+  return agent.display_name?.trim() || agent.hostname;
+}

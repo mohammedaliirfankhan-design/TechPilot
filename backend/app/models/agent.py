@@ -49,6 +49,13 @@ class Agent(Base):
         nullable=False,
     )
 
+    # Name chosen in the console. The hostname and device ID
+    # reported by the agent are never changed by renaming.
+    display_name: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
     operating_system: Mapped[str] = mapped_column(
         String(100),
         nullable=False,

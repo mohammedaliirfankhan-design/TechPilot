@@ -16,6 +16,7 @@ export type Agent = {
   id: number;
   device_id: string;
   hostname: string;
+  display_name?: string | null;
   operating_system: string;
   os_version: string;
   agent_version: string;
@@ -197,6 +198,103 @@ export async function getAgents(
   }
 
   return response.json();
+}
+
+
+/* =========================================================
+   DEVICE NAME
+   Only the name shown in the console changes; the hostname
+   and device ID stay as the agent reported them. An empty
+   name clears it and the hostname is shown again.
+   ========================================================= */
+
+export async function renameDevice(
+  deviceId: string,
+  displayName: string,
+  token: string,
+): Promise<Agent> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/agents/${encodeURIComponent(
+      deviceId,
+    )}/display-name`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        display_name: displayName.trim() || null,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    let message =
+      `Failed to rename device: ${response.status}`;
+
+    try {
+      const error = await response.json();
+
+      if (typeof error.detail === "string") {
+        message = error.detail;
+      }
+    } catch {
+      // Keep default message.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
+
+/* =========================================================
+   AGENT INSTALLER DOWNLOAD (signed-in users only)
+   ========================================================= */
+
+export async function downloadAgentInstaller(
+  token: string,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/downloads/agent-installer`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    let message =
+      `Download failed: ${response.status}`;
+
+    try {
+      const error = await response.json();
+
+      if (typeof error.detail === "string") {
+        message = error.detail;
+      }
+    } catch {
+      // Keep default message.
+    }
+
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "TechAIPILOTAgentSetup.exe";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 /* =========================================================
