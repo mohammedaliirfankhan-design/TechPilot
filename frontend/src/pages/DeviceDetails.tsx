@@ -13,6 +13,7 @@ import {
   getAgents,
   getShellCommand,
   getShellSession,
+  removeDevice,
   renameDevice,
   type Agent,
   type ShellSession,
@@ -116,6 +117,63 @@ function DeviceDetails({
       );
     } finally {
       setSavingName(false);
+    }
+  };
+
+  /* ================= REMOVE ================= */
+
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState("");
+  const removeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const cancelRemoveRef = useRef<HTMLButtonElement | null>(null);
+
+  const closeRemoveDialog = () => {
+    if (removing) {
+      return;
+    }
+
+    setConfirmRemove(false);
+    setRemoveError("");
+    window.setTimeout(() => removeButtonRef.current?.focus(), 0);
+  };
+
+  useEffect(() => {
+    if (!confirmRemove) {
+      return;
+    }
+
+    cancelRemoveRef.current?.focus();
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeRemoveDialog();
+      }
+    };
+
+    document.addEventListener("keydown", onKey);
+
+    return () => document.removeEventListener("keydown", onKey);
+  }, [confirmRemove, removing]);
+
+  const confirmRemoveDevice = async () => {
+    if (!device || removing) {
+      return;
+    }
+
+    try {
+      setRemoving(true);
+      setRemoveError("");
+
+      await removeDevice(device.device_id, token);
+
+      // Back to the device list, which reloads without this device.
+      onBack();
+    } catch (error) {
+      setRemoveError(
+        error instanceof Error ? error.message : "Couldn't remove the device.",
+      );
+      setRemoving(false);
     }
   };
 
@@ -706,6 +764,98 @@ function DeviceDetails({
           </dl>
         </section>
       </div>
+
+      {/* ================= REMOVE DEVICE ================= */}
+
+      <section className="tpp-card tpp-danger" aria-labelledby="tpp-remove-title">
+        <div>
+          <h2 id="tpp-remove-title" className="tpp-card-title">
+            Remove device
+          </h2>
+          <p className="tpp-muted tpp-small">
+            Removes this device from the console and revokes its agent's
+            access. Its history is kept, and the PC can be enrolled again
+            later with a new code.
+          </p>
+        </div>
+
+        <button
+          ref={removeButtonRef}
+          type="button"
+          className="tpa-btn tpp-btn-danger"
+          onClick={() => {
+            setRemoveError("");
+            setConfirmRemove(true);
+          }}
+        >
+          Remove device
+        </button>
+      </section>
+
+      {confirmRemove && (
+        <div
+          className="tpp-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeRemoveDialog();
+            }
+          }}
+        >
+          <section
+            className="tpp-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="tpp-remove-dialog-title"
+            aria-describedby="tpp-remove-dialog-body"
+          >
+            <div className="tpp-dialog-head">
+              <h2 id="tpp-remove-dialog-title">
+                Remove {deviceName(device)}?
+              </h2>
+            </div>
+
+            <div id="tpp-remove-dialog-body" className="tpp-enroll">
+              <ul className="tpp-enroll-steps">
+                <li>It disappears from Devices, Home and Network security.</li>
+                <li>Any open remote session on it ends now.</li>
+                <li>Its agent can no longer connect to TechAIPILOT.</li>
+              </ul>
+
+              <p className="tpp-muted tpp-small">
+                This does not uninstall the agent from the PC. Uninstall it
+                there too, under Settings → Apps → TechAIPILOT Agent.
+              </p>
+
+              {removeError && (
+                <p className="tpp-inline-error" role="alert">
+                  {removeError}
+                </p>
+              )}
+
+              <div className="tpp-dialog-actions">
+                <button
+                  ref={cancelRemoveRef}
+                  type="button"
+                  className="tpa-btn tpp-btn-outline"
+                  onClick={closeRemoveDialog}
+                  disabled={removing}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="tpa-btn tpp-btn-danger-solid"
+                  onClick={() => void confirmRemoveDevice()}
+                  disabled={removing}
+                >
+                  {removing ? "Removing…" : "Remove device"}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

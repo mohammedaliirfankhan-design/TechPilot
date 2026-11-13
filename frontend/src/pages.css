@@ -862,3 +862,37 @@
 .tpp-download {
   align-self: flex-start;
 }
+
+/* ================= REMOVE DEVICE (release 1.4) ================= */
+
+.tpp-danger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-color: var(--tp-danger-line);
+}
+
+.tpp-danger > div {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.tpp-btn-danger {
+  border-color: var(--tp-danger-line);
+  color: var(--tp-danger-text);
+}
+
+.tpp-btn-danger:hover:not(:disabled) {
+  background: var(--tp-danger-bg);
+}
+
+.tpp-btn-danger-solid {
+  background: var(--tp-danger-solid);
+  color: #ffffff;
+}
+
+.tpp-btn-danger-solid:hover:not(:disabled) {
+  background: #d24b43;
+}

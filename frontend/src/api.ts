@@ -251,6 +251,45 @@ export async function renameDevice(
 
 
 /* =========================================================
+   REMOVE DEVICE
+   Detaches the device from the organization and revokes its
+   agent token. History is kept; the PC can be enrolled again.
+   ========================================================= */
+
+export async function removeDevice(
+  deviceId: string,
+  token: string,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/agents/${encodeURIComponent(deviceId)}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    let message =
+      `Failed to remove device: ${response.status}`;
+
+    try {
+      const error = await response.json();
+
+      if (typeof error.detail === "string") {
+        message = error.detail;
+      }
+    } catch {
+      // Keep default message.
+    }
+
+    throw new Error(message);
+  }
+}
+
+
+/* =========================================================
    AGENT INSTALLER DOWNLOAD (signed-in users only)
    ========================================================= */
 

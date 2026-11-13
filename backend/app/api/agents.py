@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import get_current_user
 from app.database import get_db
 from app.models.agent import Agent
+from app.models.remote_session import RemoteSession
 from app.models.user import User
 from app.schemas.agent import (
     AgentRegisterRequest,
@@ -148,6 +149,102 @@ def rename_agent(
     db.refresh(agent)
 
     return agent
+
+
+@router.delete("/{device_id}")
+async def remove_agent(
+    device_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Remove a device from the console.
+
+    The row and its history are kept. The device is detached from
+    the organization, its agent token is revoked (the agent on the
+    PC can no longer connect), and any open remote session ends.
+    The same PC can be enrolled again later with a new code.
+    """
+
+    # Imported here to avoid a circular import at startup.
+    from app.api.remote import remote_stream_hub
+    from app.services.remote_control import remote_control_manager
+
+    organization = get_user_default_organization(
+        db,
+        current_user,
+    )
+
+    if organization is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Your account must belong to exactly one active "
+                "organization to manage devices."
+            ),
+        )
+
+    agent = (
+        db.query(Agent)
+        .filter(
+            Agent.device_id == device_id,
+            Agent.organization_id == organization.id,
+        )
+        .first()
+    )
+
+    if not agent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found.",
+        )
+
+    open_sessions = (
+        db.query(RemoteSession)
+        .filter(
+            RemoteSession.device_id == device_id,
+            RemoteSession.status.in_(
+                [
+                    "REQUESTED",
+                    "ACCEPTED",
+                    "CONNECTING",
+                    "ACTIVE",
+                ]
+            ),
+        )
+        .all()
+    )
+
+    for remote_session in open_sessions:
+        remote_session.status = "ENDED"
+        remote_session.ended_at = datetime.now(timezone.utc)
+
+    agent.agent_token_hash = None
+    agent.agent_token_created_at = None
+    agent.organization_id = None
+    agent.user_id = None
+    agent.display_name = None
+
+    db.commit()
+
+    for remote_session in open_sessions:
+        await remote_stream_hub.disconnect_session(remote_session.id)
+
+        try:
+            await remote_control_manager.disconnect_agent(remote_session.id)
+        except Exception:
+            pass
+
+    print(
+        f"[AGENTS] Device {device_id} removed by user {current_user.id}; "
+        f"{len(open_sessions)} open session(s) ended",
+        flush=True,
+    )
+
+    return {
+        "status": "removed",
+        "device_id": device_id,
+    }
 
 
 @router.post(
