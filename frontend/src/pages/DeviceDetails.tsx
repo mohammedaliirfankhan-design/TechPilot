@@ -7,6 +7,7 @@ import type { FormEvent } from "react";
 
 import {
   closeShellSession,
+  closeShellSessionOnExit,
   createRemoteSession,
   createShellCommand,
   createShellSession,
@@ -193,6 +194,32 @@ function DeviceDetails({
   const [executingCommand, setExecutingCommand] = useState(false);
   const [shellOutput, setShellOutput] = useState("");
   const [shellError, setShellError] = useState("");
+
+  // Close an open shell when leaving this page or closing the tab,
+  // so it never blocks the next "Open shell" on this device.
+  const shellSessionRef = useRef<ShellSession | null>(null);
+
+  useEffect(() => {
+    shellSessionRef.current = shellSession;
+  }, [shellSession]);
+
+  useEffect(() => {
+    const closeIfOpen = () => {
+      const open = shellSessionRef.current;
+
+      if (open && open.status !== "ENDED" && open.status !== "CLOSED") {
+        closeShellSessionOnExit(open.session_id, token);
+        shellSessionRef.current = null;
+      }
+    };
+
+    window.addEventListener("pagehide", closeIfOpen);
+
+    return () => {
+      window.removeEventListener("pagehide", closeIfOpen);
+      closeIfOpen();
+    };
+  }, [token]);
 
   useEffect(() => {
     let cancelled = false;

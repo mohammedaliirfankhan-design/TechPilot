@@ -74,6 +74,47 @@ def create_shell_session(
             detail="You do not have access to this device.",
         )
 
+    # Opening a shell replaces any earlier unfinished shell for this
+    # device (tab closed, page left, browser crashed). The agent drops
+    # a session as soon as its status is no longer ACTIVE and then
+    # picks up the new one.
+    stale_sessions = (
+        db.query(ShellSession)
+        .filter(
+            ShellSession.device_id == agent.device_id,
+            ShellSession.status.notin_(["ENDED", "CLOSED"]),
+        )
+        .all()
+    )
+
+    for stale in stale_sessions:
+        stale.status = "ENDED"
+        stale.ended_at = datetime.now(timezone.utc)
+
+        record_audit_event(
+            db,
+            organization_id=stale.organization_id,
+            user_id=current_user.id,
+            device_id=stale.device_id,
+            event_type="SHELL_SESSION_REPLACED",
+            category="DEVICES",
+            action="CLOSE",
+            resource_type="shell_session",
+            resource_id=str(stale.id),
+            status="SUCCESS",
+            risk_level="LOW",
+            message=(
+                f"Shell session {stale.id} on device {stale.device_id} "
+                "was ended because a new shell was opened."
+            ),
+            event_metadata={
+                "shell_type": stale.shell_type,
+            },
+        )
+
+    if stale_sessions:
+        db.flush()
+
     if has_active_shell_session(
         db,
         request.device_id,

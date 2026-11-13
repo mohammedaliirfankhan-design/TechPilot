@@ -669,6 +669,29 @@ export async function closeShellSession(
 }
 
 
+// Closes a shell when the page is left or the tab is closed.
+// keepalive lets the request finish even while the page unloads.
+export function closeShellSessionOnExit(
+  sessionId: number,
+  token: string,
+): void {
+  try {
+    void fetch(
+      `${API_BASE_URL}/api/v1/shell/sessions/${sessionId}/close`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        keepalive: true,
+      },
+    ).catch(() => undefined);
+  } catch {
+    // Best effort only; the next "Open shell" replaces it anyway.
+  }
+}
+
+
 export async function createShellCommand(
   sessionId: number,
   command: string,
