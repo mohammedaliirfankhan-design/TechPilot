@@ -516,7 +516,7 @@ async def maybe_end_agent_session(
 
 
 @router.post("/sessions")
-def create_remote_session(
+async def create_remote_session(
     device_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -544,11 +544,13 @@ def create_remote_session(
             detail="You do not have access to this device.",
         )
 
-    active_session = (
+    # Starting a new session replaces any earlier unfinished one
+    # for this device (closed tab, crashed browser, agent offline).
+    # Ownership of the device was checked above.
+    stale_sessions = (
         db.query(RemoteSession)
         .filter(
-            RemoteSession.device_id
-            == device_id,
+            RemoteSession.device_id == device_id,
             RemoteSession.status.in_(
                 [
                     "REQUESTED",
@@ -558,17 +560,27 @@ def create_remote_session(
                 ]
             ),
         )
-        .first()
+        .all()
     )
 
-    if active_session:
+    for stale in stale_sessions:
+        stale.status = "ENDED"
+        stale.ended_at = datetime.now(timezone.utc)
 
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "A remote session is already "
-                "active for this device"
-            ),
+    if stale_sessions:
+        db.commit()
+
+    for stale in stale_sessions:
+        await remote_stream_hub.disconnect_session(stale.id)
+
+        try:
+            await remote_control_manager.disconnect_agent(stale.id)
+        except Exception:
+            pass
+
+        print(
+            f"[REMOTE] Session {stale.id} replaced by a new session request",
+            flush=True,
         )
 
     session = RemoteSession(
