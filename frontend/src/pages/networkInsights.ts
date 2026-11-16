@@ -151,24 +151,24 @@ const PORTS: Record<number, PortInfo> = {
   110: { name: "POP3", meaning: "Old email download", exposure: "review" },
   123: { name: "Time sync", meaning: "Keeps the clock correct", exposure: "normal" },
   135: { name: "Windows RPC", meaning: "Windows internal service", exposure: "normal" },
-  137: { name: "NetBIOS", meaning: "Windows network names", exposure: "review" },
-  138: { name: "NetBIOS", meaning: "Windows network names", exposure: "review" },
-  139: { name: "NetBIOS sharing", meaning: "Old Windows file sharing", exposure: "risky" },
+  137: { name: "Windows network names", meaning: "Lets other PCs see this computer's name", exposure: "review" },
+  138: { name: "Windows network names", meaning: "Lets other PCs see this computer's name", exposure: "review" },
+  139: { name: "Old file sharing", meaning: "Older form of Windows file sharing", exposure: "review" },
   143: { name: "IMAP", meaning: "Email access", exposure: "review" },
   443: { name: "Web (HTTPS)", meaning: "Secure website traffic", exposure: "normal" },
-  445: { name: "File sharing (SMB)", meaning: "Windows shared folders and printers", exposure: "risky" },
+  445: { name: "File sharing", meaning: "Shared folders and printers", exposure: "review" },
   465: { name: "Secure mail", meaning: "Sends email securely", exposure: "normal" },
   587: { name: "Mail submission", meaning: "Sends email", exposure: "normal" },
   993: { name: "Secure IMAP", meaning: "Secure email access", exposure: "normal" },
   995: { name: "Secure POP3", meaning: "Secure email download", exposure: "normal" },
   1433: { name: "SQL Server", meaning: "Database", exposure: "risky" },
   1521: { name: "Oracle DB", meaning: "Database", exposure: "risky" },
-  1900: { name: "UPnP / SSDP", meaning: "Finds devices on the local network", exposure: "review" },
+  1900: { name: "Device discovery", meaning: "Finds printers, TVs and other devices nearby", exposure: "review" },
   3306: { name: "MySQL", meaning: "Database", exposure: "risky" },
   3389: { name: "Remote Desktop", meaning: "Lets someone log in to this screen remotely", exposure: "risky" },
   5040: { name: "Windows service", meaning: "Windows internal service", exposure: "normal" },
   5353: { name: "mDNS", meaning: "Finds devices on the local network", exposure: "normal" },
-  5355: { name: "LLMNR", meaning: "Windows local name lookup", exposure: "review" },
+  5355: { name: "Windows network names", meaning: "Lets other PCs see this computer's name", exposure: "review" },
   5432: { name: "PostgreSQL", meaning: "Database", exposure: "risky" },
   5900: { name: "VNC", meaning: "Screen sharing / remote control", exposure: "risky" },
   5985: { name: "WinRM", meaning: "Remote Windows management", exposure: "risky" },
@@ -335,7 +335,9 @@ export function openDoors(listeners: NetworkListener[]): OpenDoor[] {
   const byPort = new Map<string, OpenDoor>();
 
   for (const l of listeners) {
-    const key = `${l.protocol}-${l.port}`;
+    const info = describePort(l.port);
+    // Group by what it means, so 137/138/5355 show once.
+    const key = PORTS[l.port] ? info.name : `${l.protocol}-${l.port}`;
     const reachable =
       isWildcardBind(l.bind_address) ||
       addressScope(l.bind_address) !== "this-device";
@@ -351,7 +353,7 @@ export function openDoors(listeners: NetworkListener[]): OpenDoor[] {
         port: l.port,
         protocol: l.protocol.toUpperCase(),
         apps: [app],
-        info: describePort(l.port),
+        info,
         reachableFromNetwork: reachable,
       });
     }
@@ -387,13 +389,29 @@ export type FlaggedConnection = {
   severity: Severity;
 };
 
-function activeRemote(connections: NetworkConnection[]) {
-  return connections.filter(
-    (c) =>
-      c.remote_address &&
-      addressScope(c.remote_address) !== "this-device" &&
-      c.status !== "LISTEN",
+const CLOSED_STATES = new Set([
+  "LISTEN",
+  "TIME_WAIT",
+  "CLOSE_WAIT",
+  "CLOSED",
+  "FIN_WAIT1",
+  "FIN_WAIT2",
+  "LAST_ACK",
+  "CLOSING",
+]);
+
+export function isLiveConnection(c: NetworkConnection) {
+  return (
+    !!c.remote_address &&
+    addressScope(c.remote_address) !== "this-device" &&
+    !CLOSED_STATES.has((c.status ?? "").toUpperCase()) &&
+    c.pid !== 0 &&
+    c.process_name !== "System Idle Process"
   );
+}
+
+function activeRemote(connections: NetworkConnection[]) {
+  return connections.filter(isLiveConnection);
 }
 
 export function flagConnection(
@@ -562,10 +580,24 @@ function joinWords(items: string[]) {
 export type DeviceAssessment = {
   verdict: Verdict;
   headline: string;
-  findings: Finding[];
+  // Things the admin should act on, worst first.
+  problems: Finding[];
+  // Short reassurances shown as green chips.
+  goodNews: string[];
 };
 
 const STALE_AFTER_MINUTES = 60;
+
+export function firewallState(
+  posture: FirewallPosture | null,
+): "on" | "partly-off" | "public-off" | "unknown" {
+  if (!posture || !posture.available) return "unknown";
+  if (posture.public_enabled === false) return "public-off";
+  if (posture.private_enabled === false || posture.domain_enabled === false) {
+    return "partly-off";
+  }
+  return "on";
+}
 
 export function assessDevice(
   snapshot: NetworkSnapshot | null,
@@ -574,71 +606,70 @@ export function assessDevice(
   if (!snapshot) {
     return {
       verdict: "unknown",
-      headline: "No network report from this device yet",
-      findings: [
-        {
-          severity: "info",
-          title: "Waiting for the agent",
-          detail:
-            "Once the TechAIPILOT agent on this device sends its first network report, its safety check will appear here.",
-        },
-      ],
+      headline: "No report from this device yet",
+      problems: [],
+      goodNews: [],
     };
   }
 
-  const findings: Finding[] = [];
+  const problems: Finding[] = [];
+  const goodNews: string[] = [];
 
   // Freshness
   const collected = new Date(snapshot.collected_at);
   const ageMinutes = (now.getTime() - collected.getTime()) / 60000;
   if (!Number.isNaN(ageMinutes) && ageMinutes > STALE_AFTER_MINUTES) {
-    findings.push({
+    problems.push({
       severity: "info",
-      title: "This check may be out of date",
-      detail: `The last network report arrived ${relativeTime(collected, now)}. The device may be offline.`,
+      title: "Out of date",
+      detail: `Last report was ${relativeTime(collected, now)}. The device may be offline.`,
     });
   }
 
   // Firewall
+  const fwState = firewallState(snapshot.firewall_posture);
   const fw = summarizeFirewall(snapshot.firewall_posture);
-  findings.push({ severity: fw.severity, title: fw.headline, detail: fw.detail });
 
-  // Open doors
-  const firewallOff =
-    fw.severity === "risk" || fw.severity === "warn";
-  const exposed = openDoors(snapshot.listeners).filter(
-    (d) => d.reachableFromNetwork && d.info.exposure === "risky",
-  );
-
-  if (exposed.length > 0) {
-    const names = exposed.slice(0, 3).map((d) => d.info.name);
-    findings.push({
-      severity: firewallOff ? "risk" : "warn",
-      title:
-        exposed.length === 1
-          ? `${names[0]} is open to the network`
-          : `${exposed.length} sensitive services are open to the network`,
-      detail: firewallOff
-        ? `${joinWords(names)} can be reached by other computers, and the firewall is not fully on to filter them.`
-        : `${joinWords(names)} can be reached by other computers. The firewall is on, but check these are needed.`,
+  if (fwState === "on") {
+    goodNews.push("Firewall on");
+  } else if (fwState === "unknown") {
+    problems.push({
+      severity: "info",
+      title: "Couldn't read the firewall",
+      detail: "The agent didn't get an answer from Windows this time. It will try again on the next report.",
     });
   } else {
-    findings.push({
-      severity: "good",
-      title: "No sensitive services open",
-      detail:
-        "Nothing like Remote Desktop, file sharing or databases is accepting connections from other computers.",
+    problems.push({ severity: fw.severity, title: fw.headline, detail: fw.detail });
+  }
+
+  // Open doors: only escalate when we KNOW the firewall is off.
+  const firewallKnownOff = fwState === "public-off" || fwState === "partly-off";
+  const doors = openDoors(snapshot.listeners).filter((d) => d.reachableFromNetwork);
+  const risky = doors.filter((d) => d.info.exposure === "risky");
+
+  if (risky.length > 0) {
+    const names = risky.slice(0, 3).map((d) => d.info.name);
+    problems.push({
+      severity: firewallKnownOff ? "risk" : "warn",
+      title:
+        risky.length === 1
+          ? `${names[0]} is open to other computers`
+          : `${risky.length} remote-access services are open`,
+      detail: firewallKnownOff
+        ? `${joinWords(names)} can be reached from the network and the firewall is off. Turn the firewall on or switch these off.`
+        : `${joinWords(names)} can be reached from the network. Make sure this is intended.`,
     });
+  } else {
+    goodNews.push("No remote-access services open");
   }
 
   // Outbound
   const flags = flaggedConnections(snapshot.connections);
   const serious = flags.filter((f) => f.severity === "risk");
   const unusual = flags.filter((f) => f.severity === "warn");
-  const plainWeb = flags.filter((f) => f.severity === "info");
 
   if (serious.length > 0) {
-    findings.push({
+    problems.push({
       severity: "risk",
       title: `${serious.length} suspicious connection${serious.length > 1 ? "s" : ""}`,
       detail: `${serious[0].app}: ${serious[0].reason}.`,
@@ -646,58 +677,29 @@ export function assessDevice(
   }
 
   if (unusual.length > 0) {
-    findings.push({
+    problems.push({
       severity: "warn",
       title: `${unusual.length} unusual connection${unusual.length > 1 ? "s" : ""}`,
-      detail:
-        "An app the agent could not identify is talking to the internet on a port normal apps rarely use.",
-    });
-  }
-
-  if (plainWeb.length > 0) {
-    findings.push({
-      severity: "info",
-      title: "Some unencrypted web traffic",
-      detail: `${plainWeb.length} connection${plainWeb.length > 1 ? "s use" : " uses"} plain HTTP. Usually harmless updates or ads, but not private.`,
+      detail: "An app we couldn't identify is talking to the internet on an uncommon port.",
     });
   }
 
   if (serious.length === 0 && unusual.length === 0) {
-    findings.push({
-      severity: "good",
-      title: "No suspicious connections",
-      detail:
-        "Every app talking to the internet is using normal, expected channels.",
-    });
+    goodNews.push("No suspicious connections");
   }
 
   const order = { risk: 0, warn: 1, info: 2, good: 3 };
-  findings.sort((a, b) => order[a.severity] - order[b.severity]);
+  problems.sort((a, b) => order[a.severity] - order[b.severity]);
 
-  const hasRisk = findings.some((f) => f.severity === "risk");
-  const hasWarn = findings.some((f) => f.severity === "warn");
-
-  if (hasRisk) {
-    return {
-      verdict: "risk",
-      headline: "This device is at risk",
-      findings,
-    };
+  if (problems.some((f) => f.severity === "risk")) {
+    return { verdict: "risk", headline: "This device is at risk", problems, goodNews };
   }
 
-  if (hasWarn) {
-    return {
-      verdict: "attention",
-      headline: "This device needs a look",
-      findings,
-    };
+  if (problems.some((f) => f.severity === "warn")) {
+    return { verdict: "attention", headline: "This device needs a look", problems, goodNews };
   }
 
-  return {
-    verdict: "safe",
-    headline: "This device looks safe",
-    findings,
-  };
+  return { verdict: "safe", headline: "This device looks safe", problems, goodNews };
 }
 
 // ---------------------------------------------------------

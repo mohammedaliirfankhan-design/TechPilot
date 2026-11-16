@@ -10,10 +10,11 @@ import {
   connectedAdapters,
   describeRemotePort,
   extractAddresses,
+  firewallState,
   flaggedConnections,
+  isLiveConnection,
   openDoors,
   relativeTime,
-  summarizeFirewall,
   type ConnectedAdapter,
   type FirewallPosture,
   type NetworkSnapshot,
@@ -231,14 +232,8 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
 
   return (
     <section className="ns-page">
-      <header className="ns-header">
-        <div>
-          <h2>Network safety</h2>
-          <p>
-            See which network each device is on, whether it is protected, and
-            what it is talking to.
-          </p>
-        </div>
+      <div className="ns-topline">
+        <OrgSummary overview={overview} error={overviewError} />
 
         <button
           type="button"
@@ -249,9 +244,7 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
           <Icon name="refresh" />
           {deviceLoading ? "Checking…" : "Check again"}
         </button>
-      </header>
-
-      <OrgSummary overview={overview} error={overviewError} />
+      </div>
 
       <div className="ns-layout">
         {/* ---------------- Device rail ---------------- */}
@@ -326,7 +319,8 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
                 hostname={details?.device.hostname ?? selectedDevice?.hostname ?? ""}
                 verdict={assessment.verdict}
                 headline={assessment.headline}
-                findings={assessment.findings}
+                problems={assessment.problems}
+                goodNews={assessment.goodNews}
                 checkedAt={snapshot?.collected_at ?? null}
                 now={now}
               />
@@ -374,30 +368,21 @@ function OrgSummary({
 
   if (!overview) return <p className="ns-org ns-muted">Loading summary…</p>;
 
-  const silent = overview.total_devices - overview.reporting_devices;
+  // The backend can over-count reporting devices; never show "4 of 2".
+  const total = overview.total_devices;
+  const reporting = Math.min(overview.reporting_devices, total);
 
   return (
     <p className="ns-org">
-      <span>
-        <b>{overview.reporting_devices}</b> of {overview.total_devices} devices
-        sending network reports
-        {silent > 0 && (
-          <>
-            {" "}
-            (<b>{silent}</b> not reporting yet)
-          </>
-        )}
-        .
-      </span>{" "}
+      <b>{reporting}</b> of <b>{total}</b> device{total === 1 ? "" : "s"}{" "}
+      reporting
       {overview.firewall_disabled_snapshots > 0 ? (
         <span className="ns-text-warn">
-          {overview.firewall_disabled_snapshots} report
-          {overview.firewall_disabled_snapshots > 1 ? "s" : ""} showed a
-          firewall switched off.
+          {" "}
+          · firewall was off in {overview.firewall_disabled_snapshots} report
+          {overview.firewall_disabled_snapshots > 1 ? "s" : ""}
         </span>
-      ) : (
-        <span className="ns-text-good">No reports with the firewall off.</span>
-      )}
+      ) : null}
     </p>
   );
 }
@@ -417,14 +402,16 @@ function VerdictBanner({
   hostname,
   verdict,
   headline,
-  findings,
+  problems,
+  goodNews,
   checkedAt,
   now,
 }: {
   hostname: string;
   verdict: Verdict;
   headline: string;
-  findings: { severity: Severity; title: string; detail: string }[];
+  problems: { severity: Severity; title: string; detail: string }[];
+  goodNews: string[];
   checkedAt: string | null;
   now: Date;
 }) {
@@ -435,28 +422,40 @@ function VerdictBanner({
           <Icon name={VERDICT_ICON[verdict]} />
         </span>
         <div>
-          <p className="ns-verdict-device">{hostname}</p>
           <h3>{headline}</h3>
-          {checkedAt && (
-            <p className="ns-muted">
-              Last checked {relativeTime(new Date(checkedAt), now)} ·{" "}
-              {formatTime(checkedAt)}
-            </p>
-          )}
+          <p className="ns-muted">
+            {hostname}
+            {checkedAt
+              ? ` · checked ${relativeTime(new Date(checkedAt), now)}`
+              : " · waiting for the agent's first report"}
+          </p>
         </div>
       </div>
 
-      <ul className="ns-findings">
-        {findings.map((f) => (
-          <li key={f.title} className={`is-${f.severity}`}>
-            <SeverityMark severity={f.severity} />
-            <div>
-              <strong>{f.title}</strong>
-              <span>{f.detail}</span>
-            </div>
-          </li>
-        ))}
-      </ul>
+      {problems.length > 0 && (
+        <ul className="ns-problems">
+          {problems.map((f) => (
+            <li key={f.title}>
+              <SeverityMark severity={f.severity} />
+              <div>
+                <strong>{f.title}</strong>
+                <span>{f.detail}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {goodNews.length > 0 && (
+        <ul className="ns-chips" aria-label="What's fine">
+          {goodNews.map((g) => (
+            <li key={g}>
+              <Icon name="check" />
+              {g}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -484,21 +483,18 @@ function ConnectionSection({
   const primary = adapters.find((a) => a.kind !== "vpn") ?? adapters[0];
   const vpn = adapters.find((a) => a.kind === "vpn");
 
-  const talksToInternet = snapshot.connections.some(
-    (c) => addressScope(c.remote_address) === "internet",
+  const online = snapshot.connections.some(
+    (c) => isLiveConnection(c) && addressScope(c.remote_address) === "internet",
   );
 
   return (
     <section className="ns-card">
-      <SectionHead
-        title="Where it's connected"
-        hint="How this device reaches the internet right now."
-      />
+      <h3 className="ns-card-title">Connection</h3>
 
       {!primary ? (
         <p className="ns-muted">
-          No active network connection was found in the last report. The device
-          may be offline or only using virtual adapters.
+          No active network connection in the last report. The device may be
+          offline.
         </p>
       ) : (
         <>
@@ -507,34 +503,17 @@ function ConnectionSection({
             <ChainNode
               icon={ADAPTER_ICON[primary.kind]}
               title={ADAPTER_LABEL[primary.kind]}
-              sub={primary.name}
+              sub={primary.speedMbps ? formatSpeed(primary.speedMbps) : primary.name}
             />
-            {vpn && (
-              <ChainNode icon="lock" title="VPN tunnel" sub={vpn.name} tone="good" />
-            )}
-            <ChainNode
-              icon="router"
-              title="Local network"
-              sub={primary.ipv4 ?? "No address"}
-            />
+            {vpn && <ChainNode icon="lock" title="VPN" sub="Traffic hidden" tone="good" />}
+            <ChainNode icon="router" title="Router" sub={primary.ipv4 ?? "No address"} />
             <ChainNode
               icon="globe"
               title="Internet"
-              sub={talksToInternet ? "Reachable" : "No traffic seen"}
-              tone={talksToInternet ? undefined : "muted"}
+              sub={online ? "Online" : "No traffic"}
+              tone={online ? undefined : "muted"}
             />
           </ol>
-
-          <p className="ns-plain">
-            Connected by <b>{ADAPTER_LABEL[primary.kind].toLowerCase()}</b>
-            {primary.speedMbps ? ` at ${formatSpeed(primary.speedMbps)}` : ""}
-            , with the local address <b>{primary.ipv4}</b>.{" "}
-            {vpn
-              ? "Traffic also goes through a VPN, which hides it from the local network."
-              : "No VPN is in use."}
-            {adapters.length > 1 &&
-              ` ${adapters.length} network adapters are active.`}
-          </p>
         </>
       )}
     </section>
@@ -557,7 +536,7 @@ function ChainNode({
       <span className="ns-chain-icon">
         <Icon name={icon} />
       </span>
-      <strong>{title}</strong>
+      <strong title={title}>{title}</strong>
       <small title={sub}>{sub}</small>
     </li>
   );
@@ -568,78 +547,50 @@ function ChainNode({
 // ---------------------------------------------------------
 
 function ProtectionSection({ snapshot }: { snapshot: NetworkSnapshot }) {
-  const fw = summarizeFirewall(snapshot.firewall_posture);
-  const doors = openDoors(snapshot.listeners);
-  const exposed = doors.filter((d) => d.reachableFromNetwork);
-  const internalOnly = doors.length - exposed.length;
-  const [showAll, setShowAll] = useState(false);
+  const state = firewallState(snapshot.firewall_posture);
+  const doors = openDoors(snapshot.listeners).filter(
+    (d) => d.reachableFromNetwork && d.info.exposure !== "normal",
+  );
 
-  const visible = showAll ? exposed : exposed.slice(0, 6);
+  const fwText: Record<typeof state, { label: string; tone: Severity }> = {
+    on: { label: "On", tone: "good" },
+    "partly-off": { label: "Partly off", tone: "warn" },
+    "public-off": { label: "Off on public Wi-Fi", tone: "risk" },
+    unknown: { label: "Couldn't check", tone: "info" },
+  };
 
   return (
     <section className="ns-card">
-      <SectionHead
-        title="Protection"
-        hint="Is the device shielded from other computers on the network?"
-      />
+      <h3 className="ns-card-title">Protection</h3>
 
-      <div className="ns-protect-grid">
-        <div className={`ns-firewall is-${fw.severity}`}>
-          <div className="ns-firewall-head">
-            <Icon name="firewall" />
-            <div>
-              <strong>{fw.headline}</strong>
-              <span>{fw.detail}</span>
-            </div>
-          </div>
-
-          <FirewallProfiles posture={snapshot.firewall_posture} />
-        </div>
-
-        <div className="ns-doors">
-          <h4>Open doors</h4>
-          <p className="ns-muted">
-            Services on this device that other computers can connect to.
-            {internalOnly > 0 &&
-              ` ${internalOnly} more only accept connections from the device itself, which is safe.`}
-          </p>
-
-          {exposed.length === 0 ? (
-            <EmptyGood text="Nothing on this device accepts connections from the network." />
-          ) : (
-            <>
-              <ul className="ns-door-list">
-                {visible.map((d) => (
-                  <li key={`${d.protocol}-${d.port}`} className={`is-${d.info.exposure}`}>
-                    <div>
-                      <strong>{d.info.name}</strong>
-                      <span>
-                        {d.info.meaning} · {d.apps.join(", ")}
-                      </span>
-                    </div>
-                    <span className="ns-pill">
-                      {d.info.exposure === "risky"
-                        ? "Sensitive"
-                        : d.info.exposure === "review"
-                          ? "Check"
-                          : "Normal"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              {exposed.length > 6 && (
-                <button
-                  type="button"
-                  className="ns-link"
-                  onClick={() => setShowAll((v) => !v)}
-                >
-                  {showAll ? "Show fewer" : `Show all ${exposed.length}`}
-                </button>
-              )}
-            </>
-          )}
-        </div>
+      <div className="ns-row">
+        <span className="ns-row-label">
+          <Icon name="firewall" /> Firewall
+        </span>
+        <span className={`ns-status is-${fwText[state].tone}`}>{fwText[state].label}</span>
       </div>
+
+      {state !== "unknown" && <FirewallProfiles posture={snapshot.firewall_posture} />}
+
+      <div className="ns-row ns-row-top">
+        <span className="ns-row-label">
+          <Icon name="door" /> Open to other computers
+        </span>
+        <span className={`ns-status is-${doors.length ? "warn" : "good"}`}>
+          {doors.length ? doors.length : "None"}
+        </span>
+      </div>
+
+      {doors.length > 0 && (
+        <ul className="ns-door-list">
+          {doors.map((d) => (
+            <li key={`${d.info.name}-${d.port}`} className={`is-${d.info.exposure}`}>
+              <strong>{d.info.name}</strong>
+              <span>{d.info.meaning}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -649,19 +600,15 @@ function FirewallProfiles({ posture }: { posture: FirewallPosture | null }) {
 
   const rows: [string, boolean | null][] = [
     ["Public Wi-Fi", posture.public_enabled],
-    ["Home & trusted", posture.private_enabled],
-    ["Company network", posture.domain_enabled],
+    ["Home", posture.private_enabled],
+    ["Office", posture.domain_enabled],
   ];
 
   return (
     <ul className="ns-profiles">
       {rows.map(([label, enabled]) => (
-        <li
-          key={label}
-          className={enabled === true ? "is-on" : enabled === false ? "is-off" : ""}
-        >
-          <span>{label}</span>
-          <b>{enabled === true ? "On" : enabled === false ? "Off" : "Unknown"}</b>
+        <li key={label} className={enabled === false ? "is-off" : enabled ? "is-on" : ""}>
+          {label} <b>{enabled === true ? "on" : enabled === false ? "off" : "?"}</b>
         </li>
       ))}
     </ul>
@@ -675,99 +622,72 @@ function FirewallProfiles({ posture }: { posture: FirewallPosture | null }) {
 function ActivitySection({ snapshot }: { snapshot: NetworkSnapshot }) {
   const apps = appActivity(snapshot.connections);
   const flags = flaggedConnections(snapshot.connections);
+  const concerns = flags.filter((f) => f.severity === "risk" || f.severity === "warn");
+  const plainWeb = flags.filter((f) => f.severity === "info").length;
   const max = Math.max(1, ...apps.map((a) => a.internet + a.localNetwork));
   const [showAll, setShowAll] = useState(false);
-  const visible = showAll ? apps : apps.slice(0, 8);
+  const visible = showAll ? apps : apps.slice(0, 6);
 
   return (
     <section className="ns-card">
-      <SectionHead
-        title="What it's talking to"
-        hint="Apps on this device that have open connections right now."
-      />
+      <h3 className="ns-card-title">Activity</h3>
 
-      <div className="ns-activity-grid">
-        <div>
-          <h4>Apps using the network</h4>
-          {apps.length === 0 ? (
-            <p className="ns-muted">No apps had open connections at the last check.</p>
-          ) : (
-            <>
-              <ul className="ns-apps">
-                {visible.map((a) => {
-                  const total = a.internet + a.localNetwork;
-                  return (
-                    <li key={a.app} className={a.flagged ? "is-flagged" : ""}>
-                      <div className="ns-app-row">
-                        <strong>{prettyApp(a.app)}</strong>
-                        <span>
-                          {a.destinations} destination{a.destinations === 1 ? "" : "s"}
-                        </span>
-                      </div>
-                      <div
-                        className="ns-bar"
-                        role="img"
-                        aria-label={`${a.internet} internet and ${a.localNetwork} local connections`}
-                      >
-                        <span
-                          className="ns-bar-internet"
-                          style={{ width: `${(a.internet / max) * 100}%` }}
-                        />
-                        <span
-                          className="ns-bar-local"
-                          style={{ width: `${(a.localNetwork / max) * 100}%` }}
-                        />
-                      </div>
-                      <small>
-                        {a.internet > 0 && `${a.internet} to the internet`}
-                        {a.internet > 0 && a.localNetwork > 0 && " · "}
-                        {a.localNetwork > 0 && `${a.localNetwork} on the local network`}
-                        {total === 0 && "Idle"}
-                      </small>
-                    </li>
-                  );
-                })}
-              </ul>
-              {apps.length > 8 && (
-                <button
-                  type="button"
-                  className="ns-link"
-                  onClick={() => setShowAll((v) => !v)}
-                >
-                  {showAll ? "Show fewer" : `Show all ${apps.length} apps`}
-                </button>
-              )}
-            </>
-          )}
-        </div>
+      {concerns.length === 0 ? (
+        <EmptyGood text="Nothing suspicious. All apps are using normal internet channels." />
+      ) : (
+        <ul className="ns-flags">
+          {concerns.slice(0, 5).map((f) => (
+            <li key={`${f.app}-${f.remote}-${f.port}`}>
+              <SeverityMark severity={f.severity} />
+              <div>
+                <strong>
+                  {prettyApp(f.app)}: {f.reason}
+                </strong>
+                <small>
+                  {f.remote} · {describeRemotePort(f.port)}
+                </small>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
 
-        <div>
-          <h4>Things to check</h4>
-          {flags.length === 0 ? (
-            <EmptyGood text="Nothing suspicious. Every connection uses normal, expected channels." />
-          ) : (
-            <ul className="ns-flags">
-              {flags.slice(0, 8).map((f) => (
-                <li key={`${f.app}-${f.remote}-${f.port}`} className={`is-${f.severity}`}>
-                  <SeverityMark severity={f.severity} />
-                  <div>
-                    <strong>{prettyApp(f.app)}</strong>
-                    <span>{f.reason}</span>
-                    <small>
-                      {f.remote} · {describeRemotePort(f.port)}
-                    </small>
-                  </div>
+      <h4 className="ns-subtitle">Apps online right now</h4>
+
+      {apps.length === 0 ? (
+        <p className="ns-muted">No apps had open connections at the last check.</p>
+      ) : (
+        <>
+          <ul className="ns-apps">
+            {visible.map((a) => {
+              const total = a.internet + a.localNetwork;
+              return (
+                <li key={a.app}>
+                  <strong title={a.app}>{prettyApp(a.app)}</strong>
+                  <span className="ns-bar" aria-hidden="true">
+                    <span style={{ width: `${(total / max) * 100}%` }} />
+                  </span>
+                  <span className="ns-count">{total}</span>
                 </li>
-              ))}
-            </ul>
-          )}
+              );
+            })}
+          </ul>
 
-          <p className="ns-note">
-            Website names and a safe/unsafe site check are coming in the next
-            agent update. Today this view works from connection addresses.
-          </p>
-        </div>
-      </div>
+          <div className="ns-foot">
+            {apps.length > 6 && (
+              <button type="button" className="ns-link" onClick={() => setShowAll((v) => !v)}>
+                {showAll ? "Show fewer" : `Show all ${apps.length} apps`}
+              </button>
+            )}
+            {plainWeb > 0 && (
+              <span className="ns-muted">
+                {plainWeb === 1 ? "1 connection uses" : `${plainWeb} connections use`}{" "}
+                unencrypted web. Usually harmless updates.
+              </span>
+            )}
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -798,8 +718,8 @@ function HistorySection({
   return (
     <section className="ns-card">
       <SectionHead
-        title="Recent reports"
-        hint={`The last ${items.length} network reports, oldest on the left. Bar height is how busy the device was.`}
+        title="Last few hours"
+        hint="Each bar is one report. Red means the firewall was off."
       />
 
       <div className="ns-history" role="list">
@@ -944,8 +864,8 @@ function AdvancedSection({ snapshot }: { snapshot: NetworkSnapshot }) {
 function SectionHead({ title, hint }: { title: string; hint: string }) {
   return (
     <div className="ns-section-head">
-      <h3>{title}</h3>
-      <p>{hint}</p>
+      <h3 className="ns-card-title">{title}</h3>
+      <p className="ns-muted">{hint}</p>
     </div>
   );
 }
@@ -1024,6 +944,7 @@ type IconName =
   | "globe"
   | "chip"
   | "firewall"
+  | "door"
   | "shield"
   | "shield-check"
   | "shield-alert"
@@ -1043,6 +964,7 @@ const ICON_PATHS: Record<IconName, string> = {
   globe: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18",
   chip: "M7 7h10v10H7zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4",
   firewall: "M3 5h18v14H3zM3 10h18M3 15h18M9 5v5M15 10v5M9 15v4",
+  door: "M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17M3 21h18M14 12h.01",
   shield: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z",
   "shield-check": "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM8.5 12l2.5 2.5 4.5-5",
   "shield-alert": "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM12 8v5M12 16h.01",

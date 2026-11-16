@@ -46,7 +46,7 @@ const pageTitles: Record<Page, string> = {
 const pageDescriptions: Record<Page, string> = {
   home: "An overview of your enrolled devices and their network findings.",
   devices: "Enrolled TechAIPILOT agents. Open a device to start a shell or a remote session.",
-  "network-security": "Firewall state, listeners and connections reported by your devices.",
+    "network-security": "Is each device safe, protected, and only talking to what it should?",
 };
 
 function App() {
