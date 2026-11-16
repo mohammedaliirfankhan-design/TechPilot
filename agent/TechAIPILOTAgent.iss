@@ -71,6 +71,65 @@ var
   ConfigPage: TInputQueryWizardPage;
   EnrollmentToken: String;
 
+  // Update mode: this PC is already enrolled, so skip the
+  // enrollment page and keep the existing connection.
+  UpdateMode: Boolean;
+  ExistingToken: String;
+  ExistingBackendUrl: String;
+
+
+function HasParam(const Name: String): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+
+  for I := 1 to ParamCount do
+  begin
+    if CompareText(ParamStr(I), Name) = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+
+function InitializeSetup(): Boolean;
+begin
+  ExistingToken := '';
+  ExistingBackendUrl := '';
+
+  RegQueryStringValue(
+    HKEY_CURRENT_USER,
+    'Environment',
+    'TECHAIPILOT_AGENT_TOKEN',
+    ExistingToken
+  );
+
+  RegQueryStringValue(
+    HKEY_CURRENT_USER,
+    'Environment',
+    'TECHAIPILOT_BACKEND_URL',
+    ExistingBackendUrl
+  );
+
+  ExistingToken := Trim(ExistingToken);
+  ExistingBackendUrl := Trim(ExistingBackendUrl);
+
+  UpdateMode :=
+    (Pos('tpa_', LowerCase(ExistingToken)) = 1) and
+    (ExistingBackendUrl <> '') and
+    (not HasParam('/REENROLL'));
+
+  if UpdateMode then
+    Log('Update mode: existing enrollment found, enrollment page will be skipped.')
+  else
+    Log('Fresh install mode: enrollment required.');
+
+  Result := True;
+end;
+
 
 function BackendUrl(Param: String): String;
 begin
@@ -243,8 +302,32 @@ begin
   ConfigPage.Add('Backend URL:', False);
   ConfigPage.Add('Enrollment code:', False);
 
-  ConfigPage.Values[0] :=
-    'https://techaipilot-api.onrender.com';
+  // Keep the backend URL this PC already uses; fall back to the default.
+  if ExistingBackendUrl <> '' then
+    ConfigPage.Values[0] := ExistingBackendUrl
+  else
+    ConfigPage.Values[0] := 'https://techaipilot-api.onrender.com';
+end;
+
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := UpdateMode and (PageID = ConfigPage.ID);
+end;
+
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if UpdateMode and (CurPageID = wpReady) then
+  begin
+    WizardForm.ReadyLabel.Caption :=
+      'This PC is already connected to TechAIPILOT.' +
+      Chr(13) + Chr(10) + Chr(13) + Chr(10) +
+      'Setup will update the agent to version {#MyAppVersion} and keep the ' +
+      'existing connection. No enrollment code is needed.' +
+      Chr(13) + Chr(10) + Chr(13) + Chr(10) +
+      'Click Install to continue.';
+  end;
 end;
 
 
@@ -308,12 +391,35 @@ end;
 
 
 //
-// Stop any running agent before files are replaced, so an
-// update never fails with "file in use".
+// Safety net: a fresh install must never finish without a
+// successful enrollment (for example a /VERYSILENT install on a
+// brand-new PC, where the enrollment page is never shown).
+//
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+
+  if (not UpdateMode) and (EnrollmentToken = '') then
+  begin
+    Result :=
+      'This PC is not enrolled in TechAIPILOT yet. Run the setup normally ' +
+      '(not silently) and enter an enrollment code from the dashboard.';
+  end;
+end;
+
+
+//
+// Stop any running agent AND its watchdog launcher before files
+// are replaced, so an update never fails with "file in use".
+// schtasks /End alone does not always stop the hidden launcher,
+// which then restarts the agent a few seconds later.
 //
 procedure StopRunningAgent;
 var
   ResultCode: Integer;
+  StopScriptPath: String;
+  StopScript: String;
+  Attempt: Integer;
 begin
   Exec(
     ExpandConstant('{sys}\schtasks.exe'),
@@ -321,13 +427,46 @@ begin
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode
   );
 
+  StopScriptPath := ExpandConstant('{tmp}\StopTechAIPILOT.ps1');
+
+  StopScript :=
+    '$ErrorActionPreference = "SilentlyContinue"' + #13#10 +
+    'Get-CimInstance Win32_Process -Filter "Name=''powershell.exe''" |' + #13#10 +
+    '  Where-Object { $_.CommandLine -like ''*TechAIPILOTAgentLauncher*'' } |' + #13#10 +
+    '  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }' + #13#10 +
+    'Get-Process -Name "TechAIPILOTAgent" | Stop-Process -Force' + #13#10;
+
+  if SaveStringToFile(StopScriptPath, StopScript, False) then
+  begin
+    Exec(
+      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + StopScriptPath + '"',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode
+    );
+  end;
+
   Exec(
     ExpandConstant('{sys}\taskkill.exe'),
     '/IM "{#MyAppExeName}" /F',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode
   );
 
-  Sleep(1500);
+  // Give Windows time to release the exe. Re-check a few times in
+  // case the launcher managed to start the agent once more.
+  for Attempt := 1 to 3 do
+  begin
+    Sleep(2000);
+
+    Exec(
+      ExpandConstant('{sys}\taskkill.exe'),
+      '/IM "{#MyAppExeName}" /F',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode
+    );
+
+    // 128 = no such process: nothing left to stop.
+    if ResultCode = 128 then
+      Break;
+  end;
 end;
 
 
