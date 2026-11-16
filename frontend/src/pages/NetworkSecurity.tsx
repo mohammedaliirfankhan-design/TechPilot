@@ -14,6 +14,7 @@ import {
   firewallState,
   flaggedConnections,
   groupSites,
+  isBackground,
   isLiveConnection,
   networkKindLabel,
   openDoors,
@@ -727,8 +728,9 @@ function WebsitesSection({
   const [showAll, setShowAll] = useState(false);
 
   const all = report ? groupSites(report.domains) : [];
-  const visible = all.filter((x) => x.category !== "system");
-  const hiddenSystem = all.length - visible.length;
+  const visible = all.filter((x) => !isBackground(x));
+  const hiddenSystem = all.filter((x) => x.category === "system").length;
+  const hiddenAds = all.filter((x) => x.category === "ads").length;
   const risky = visible.filter((x) => x.risk === "risky");
   const unnecessary = visible.filter((x) => x.risk === "unnecessary");
   const ordinary = visible.filter((x) => x.risk === "ok");
@@ -830,8 +832,13 @@ function WebsitesSection({
           )}
 
           <p className="ns-note">
-            {hiddenSystem > 0 &&
-              `${hiddenSystem} Windows and Microsoft background service${hiddenSystem > 1 ? "s" : ""} hidden. `}
+            {hiddenAds + hiddenSystem > 0 &&
+              `Hidden: ${[
+                hiddenAds ? `${hiddenAds} ad & tracker server${hiddenAds > 1 ? "s" : ""} loaded by pages` : "",
+                hiddenSystem ? `${hiddenSystem} Windows & Microsoft service${hiddenSystem > 1 ? "s" : ""}` : "",
+              ]
+                .filter(Boolean)
+                .join(", ")}. `}
             Only website names are recorded, never page addresses or content.
           </p>
         </>

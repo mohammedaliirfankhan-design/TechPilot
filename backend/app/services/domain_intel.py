@@ -47,6 +47,7 @@ CATEGORY_LABELS = {
     "social": "Social media",
     "streaming": "Video & streaming",
     "system": "Windows & Microsoft services",
+    "ads": "Ads & trackers",
     "other": "Other",
 }
 
@@ -110,6 +111,28 @@ _CURATED: dict[str, set[str]] = {
     },
 }
 
+# Major ad and tracking networks (match all subdomains). Pages load
+# these on their own; the person did not choose to visit them.
+_ADS = {
+    "doubleclick.net", "googlesyndication.com", "googleadservices.com",
+    "google-analytics.com", "googletagmanager.com", "googletagservices.com",
+    "adservice.google.com", "2mdn.net", "admob.com",
+    "rubiconproject.com", "stickyadstv.com", "pubmatic.com", "openx.net",
+    "adnxs.com", "criteo.com", "criteo.net", "taboola.com", "outbrain.com",
+    "scorecardresearch.com", "amazon-adsystem.com", "adsrvr.org",
+    "casalemedia.com", "moatads.com", "doubleverify.com", "adsafeprotected.com",
+    "quantserve.com", "quantcount.com", "bidswitch.net", "smartadserver.com",
+    "teads.tv", "yieldmo.com", "sharethrough.com", "33across.com",
+    "lijit.com", "sovrn.com", "contextweb.com", "indexww.com",
+    "media.net", "adform.net", "rlcdn.com", "demdex.net", "omtrdc.net",
+    "everesttech.net", "bluekai.com", "krxd.net", "agkn.com",
+    "hotjar.com", "clarity.ms", "mixpanel.com", "segment.io",
+    "branch.io", "appsflyer.com", "adjust.com", "onesignal.com",
+    "protechts.net", "perimeterx.net", "inmobi.com", "vdo.ai",
+    "facebook.net", "connect.facebook.net", "ads-twitter.com",
+    "analytics.tiktok.com", "ads.linkedin.com", "px.ads.linkedin.com",
+}
+
 # Work tools that some social lists include. Never flagged.
 _WORK_ALLOWED = {
     "linkedin.com", "licdn.com", "whatsapp.com", "whatsapp.net",
@@ -136,6 +159,7 @@ _FEEDS = [
     ("adult", "https://raw.githubusercontent.com/StevenBlack/hosts/master/extensions/porn/sinfonietta/hosts", "hosts"),
     ("gambling", "https://raw.githubusercontent.com/StevenBlack/hosts/master/extensions/gambling/sinfonietta/hosts", "hosts"),
     ("social", "https://raw.githubusercontent.com/StevenBlack/hosts/master/extensions/social/sinfonietta/hosts", "hosts"),
+    ("ads", "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts", "hosts"),
 ]
 
 _lock = threading.Lock()
@@ -279,16 +303,26 @@ def classify(domain: str) -> tuple[str, str, str | None]:
             if domain in exact.get("phishing", ()) or bare in exact.get("phishing", ()):
                 return "phishing", RISK_RISKY, "Listed by OpenPhish as an active phishing site"
 
-        # 2. Work tools that some lists call social media.
-        if _in_set(domain, _WORK_ALLOWED):
+        # 2. Work tools that some lists call social media (but their
+        #    ad servers still count as ads).
+        if _in_set(domain, _WORK_ALLOWED) and not _in_set(domain, _ADS):
             return "other", RISK_OK, None
 
-        # 3. Company policy categories.
+        # 3. Known ad networks (before policy lists, which include some
+        #    ad servers of the platforms they cover).
+        if _in_set(domain, _ADS):
+            return "ads", RISK_OK, None
+
+        # 4. Company policy categories.
         for category in ("adult", "gambling", "gaming", "social", "streaming"):
             if _in_set(domain, _CURATED[category]) or domain in exact.get(category, ()) or bare in exact.get(category, ()):
                 return category, RISK_UNNECESSARY, f"{CATEGORY_LABELS[category]} is not needed for work"
 
-    # 4. Background Windows / Microsoft traffic.
+        # 5. Other ads and trackers loaded by pages (shown as a count only).
+        if domain in exact.get("ads", ()):
+            return "ads", RISK_OK, None
+
+    # 6. Background Windows / Microsoft traffic.
     if _in_set(domain, _CURATED["system"]):
         return "system", RISK_OK, None
 

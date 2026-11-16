@@ -31,6 +31,10 @@ from app.services.domain_intel import (
     intel_status,
     start_domain_intel,
 )
+from app.services.network_retention import (
+    retention_status,
+    start_network_retention,
+)
 from app.services.organization import get_user_default_organization
 
 
@@ -42,6 +46,19 @@ router = APIRouter(
 # Download threat and category lists in the background as soon as
 # the API starts, so the first reports are already classified.
 start_domain_intel()
+
+# Delete old snapshots and website rows once a day in the background.
+start_network_retention()
+
+# Leftover closed connections show up under these "apps"; they are not
+# real programs, so they are never shown next to a website.
+_IGNORED_APPS = {"System Idle Process", "Idle"}
+
+
+def _clean_apps(apps: Any) -> list[str]:
+    if not isinstance(apps, list):
+        return []
+    return [a for a in apps if isinstance(a, str) and a and a not in _IGNORED_APPS]
 
 MAX_DOMAINS_PER_REPORT = 500
 
@@ -128,11 +145,7 @@ def _store_domains(
         if not name or "." not in name or len(name) > 255:
             continue
 
-        apps = {
-            str(app)[:100]
-            for app in (item.get("apps") or [])
-            if isinstance(app, str) and app
-        }
+        apps = {str(app)[:100] for app in _clean_apps(item.get("apps"))}
 
         cleaned.setdefault(name, set()).update(list(apps)[:10])
 
@@ -173,7 +186,7 @@ def _store_domains(
         else:
             row.last_seen = now
             row.hits = (row.hits or 0) + 1
-            row.apps = sorted(set(row.apps or []) | apps)[:15] or None
+            row.apps = sorted(set(_clean_apps(row.apps)) | apps)[:15] or None
             row.category = category
             row.risk = risk
             row.reason = reason
@@ -859,35 +872,67 @@ def get_network_device_domains(
         .all()
     )
 
-    rows.sort(key=lambda r: (_RISK_ORDER.get(r.risk, 3), -(r.hits or 0)))
+    # Classify again on read, so list updates (new threat entries, the
+    # ads category) apply to sites recorded earlier too.
+    items = []
+    for row in rows:
+        category, risk, reason = classify(row.domain)
+        items.append(
+            {
+                "domain": row.domain,
+                "category": category,
+                "category_label": CATEGORY_LABELS.get(category, category),
+                "risk": risk,
+                "reason": reason,
+                "apps": _clean_apps(row.apps),
+                "hits": row.hits,
+                "first_seen": row.first_seen,
+                "last_seen": row.last_seen,
+            }
+        )
 
-    summary = {"risky": 0, "unnecessary": 0, "ok": 0, "system": 0, "total": len(rows)}
+    items.sort(key=lambda i: (_RISK_ORDER.get(i["risk"], 3), -(i["hits"] or 0)))
+
+    summary = {
+        "risky": 0,
+        "unnecessary": 0,
+        "ok": 0,
+        "system": 0,
+        "ads": 0,
+        "total": len(items),
+    }
     categories: dict[str, int] = {}
 
-    for row in rows:
-        summary[row.risk] = summary.get(row.risk, 0) + 1
-        if row.category == "system":
-            summary["system"] += 1
-        categories[row.category] = categories.get(row.category, 0) + 1
+    for item in items:
+        summary[item["risk"]] = summary.get(item["risk"], 0) + 1
+        if item["category"] in ("system", "ads"):
+            summary[item["category"]] += 1
+        categories[item["category"]] = categories.get(item["category"], 0) + 1
 
     return {
         "device_id": device_id,
         "hours": hours,
         "summary": summary,
         "categories": categories,
-        "domains": [
-            {
-                "domain": row.domain,
-                "category": row.category,
-                "category_label": CATEGORY_LABELS.get(row.category, row.category),
-                "risk": row.risk,
-                "reason": row.reason,
-                "apps": row.apps or [],
-                "hits": row.hits,
-                "first_seen": row.first_seen,
-                "last_seen": row.last_seen,
-            }
-            for row in rows
-        ],
+        "domains": items,
+        "lists": intel_status(),
+    }
+
+
+
+# =========================================================
+# NETWORK DATA CLEAN-UP STATUS
+# =========================================================
+
+
+@router.get("/maintenance/status")
+def get_network_maintenance_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_user_organization(db, current_user)
+
+    return {
+        "cleanup": retention_status(),
         "lists": intel_status(),
     }

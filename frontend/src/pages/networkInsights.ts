@@ -735,7 +735,7 @@ export type DomainRecord = {
 export type DomainReport = {
   device_id: string;
   hours: number;
-  summary: { risky: number; unnecessary: number; ok: number; system: number; total: number };
+  summary: { risky: number; unnecessary: number; ok: number; system: number; ads?: number; total: number };
   domains: DomainRecord[];
 };
 
@@ -813,49 +813,55 @@ export function siteOf(domain: string): string {
 
 const RISK_RANK: Record<DomainRisk, number> = { risky: 0, unnecessary: 1, ok: 2 };
 
+const BACKGROUND = new Set(["system", "ads"]);
+
+/** Background traffic the person did not choose: hidden as a count. */
+export function isBackground(site: Site) {
+  return BACKGROUND.has(site.category);
+}
+
 export function groupSites(domains: DomainRecord[]): Site[] {
-  const sites = new Map<string, Site>();
+  const groups = new Map<string, DomainRecord[]>();
 
   for (const d of domains) {
     const key = d.risk === "risky" ? d.domain : siteOf(d.domain);
-    let s = sites.get(key);
-
-    if (!s) {
-      s = {
-        site: key,
-        hostnames: [],
-        category: d.category,
-        categoryLabel: d.category_label,
-        risk: d.risk,
-        reason: d.reason,
-        apps: [],
-        hits: 0,
-        lastSeen: d.last_seen,
-      };
-      sites.set(key, s);
-    }
-
-    s.hostnames.push(d.domain);
-    s.hits += d.hits;
-    for (const app of d.apps) if (!s.apps.includes(app)) s.apps.push(app);
-    if (new Date(d.last_seen) > new Date(s.lastSeen)) s.lastSeen = d.last_seen;
-
-    // A site takes the worst classification of any of its hostnames.
-    const worse = RISK_RANK[d.risk] < RISK_RANK[s.risk];
-    const moreSpecific =
-      d.risk === s.risk && (s.category === "other" || s.category === "system") && d.category !== "other";
-
-    if (worse || moreSpecific) {
-      s.risk = d.risk;
-      s.category = d.category;
-      s.categoryLabel = d.category_label;
-      s.reason = d.reason;
-    }
+    const list = groups.get(key) ?? [];
+    list.push(d);
+    groups.set(key, list);
   }
 
-  return [...sites.values()].sort(
-    (a, b) => RISK_RANK[a.risk] - RISK_RANK[b.risk] || b.hits - a.hits,
-  );
+  const sites: Site[] = [];
+
+  for (const [key, records] of groups) {
+    // Worst risk wins. Among equals, a specific category beats "other",
+    // and "ads"/"system" only apply if every hostname is background
+    // (so naukri.com with an ads.naukri.com server stays visible).
+    const worst = records.reduce((a, b) => (RISK_RANK[b.risk] < RISK_RANK[a.risk] ? b : a));
+    const sameRisk = records.filter((r) => r.risk === worst.risk);
+    const foreground = sameRisk.filter((r) => !BACKGROUND.has(r.category));
+    const pool = foreground.length ? foreground : sameRisk;
+    const pick = pool.find((r) => r.category !== "other") ?? pool[0];
+
+    const apps: string[] = [];
+    for (const r of records) for (const app of r.apps) if (!apps.includes(app)) apps.push(app);
+
+    sites.push({
+      site: key,
+      hostnames: records.map((r) => r.domain),
+      category: pick.category,
+      categoryLabel: pick.category_label,
+      risk: worst.risk,
+      reason: pick.reason ?? worst.reason,
+      apps,
+      hits: records.reduce((n, r) => n + r.hits, 0),
+      lastSeen: records.reduce(
+        (latest, r) => (new Date(r.last_seen) > new Date(latest) ? r.last_seen : latest),
+        records[0].last_seen,
+      ),
+    });
+  }
+
+  return sites.sort((a, b) => RISK_RANK[a.risk] - RISK_RANK[b.risk] || b.hits - a.hits);
 }
 
 // ---------------------------------------------------------
@@ -1015,7 +1021,7 @@ export function assessDevice(
 
   // Websites
   if (domains) {
-    const sites = groupSites(domains.domains).filter((x) => x.category !== "system");
+    const sites = groupSites(domains.domains).filter((x) => !isBackground(x));
     const risky = sites.filter((x) => x.risk === "risky");
     const unnecessary = sites.filter((x) => x.risk === "unnecessary");
 
