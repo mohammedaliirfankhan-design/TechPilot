@@ -787,3 +787,86 @@
   color: var(--ns-muted);
   font-size: 12px;
 }
+
+/* ---------- Phase 3: websites ---------- */
+
+.ns-chips-tight {
+  margin: 0 0 14px !important;
+}
+
+.ns-chips li.is-neutral {
+  color: var(--ns-soft);
+  background: color-mix(in srgb, var(--ns-text) 5%, transparent);
+  border-color: var(--ns-border);
+}
+
+.ns-chips li.is-warn {
+  color: var(--ns-warn);
+  background: color-mix(in srgb, var(--ns-warn) 10%, transparent);
+  border-color: color-mix(in srgb, var(--ns-warn) 30%, transparent);
+}
+
+.ns-chips li.is-risk {
+  color: var(--ns-risk);
+  background: color-mix(in srgb, var(--ns-risk) 12%, transparent);
+  border-color: color-mix(in srgb, var(--ns-risk) 35%, transparent);
+}
+
+.ns-alert-soft {
+  margin-bottom: 14px !important;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--ns-warn);
+  background: color-mix(in srgb, var(--ns-warn) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ns-warn) 25%, transparent);
+}
+
+.ns-flag-reason {
+  display: block;
+  margin-top: 2px;
+  color: var(--ns-soft);
+  font-size: 13px;
+}
+
+.ns-site-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0 20px;
+}
+
+.ns-site-list {
+  display: grid;
+  gap: 4px;
+}
+
+.ns-site {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border-left: 3px solid var(--ns-border);
+  background: color-mix(in srgb, var(--ns-bg) 45%, transparent);
+  font-size: 13px;
+}
+
+.ns-site.is-warn { border-left-color: var(--ns-warn); }
+.ns-site.is-risk { border-left-color: var(--ns-risk); }
+
+.ns-site strong,
+.ns-site span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-site strong { font-weight: 500; }
+.ns-site span { color: var(--ns-muted); font-size: 12px; }
+.ns-site small { color: var(--ns-muted); font-size: 12px; white-space: nowrap; }
+
+@media (max-width: 600px) {
+  .ns-site { grid-template-columns: minmax(0, 1fr) auto; }
+  .ns-site span { display: none; }
+}

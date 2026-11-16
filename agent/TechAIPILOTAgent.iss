@@ -1,5 +1,5 @@
 #define MyAppName "TechAIPILOT Agent"
-#define MyAppVersion "1.3.0"
+#define MyAppVersion "1.4.0"
 #define MyAppPublisher "TechAIPILOT"
 #define MyAppExeName "TechAIPILOTAgent.exe"
 
@@ -53,6 +53,16 @@ Name: "{commonappdata}\TechAIPILOT\config"
 Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "TECHAIPILOT_BACKEND_URL"; ValueData: "{code:BackendUrl}"; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "TECHAIPILOT_DATA_DIR"; ValueData: "{commonappdata}\TechAIPILOT\data"; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "TECHAIPILOT_LOG_DIR"; ValueData: "{commonappdata}\TechAIPILOT\logs"; Flags: uninsdeletevalue
+
+; Website visibility: make browsers look up site names through Windows
+; (instead of their own resolver / DNS-over-HTTPS), so the agent can see
+; which websites are visited. Browsers will show "Managed by your
+; organization". Removed again on uninstall.
+Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge"; ValueType: dword; ValueName: "BuiltInDnsClientEnabled"; ValueData: 0; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge"; ValueType: string; ValueName: "DnsOverHttpsMode"; ValueData: "off"; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Policies\Google\Chrome"; ValueType: dword; ValueName: "BuiltInDnsClientEnabled"; ValueData: 0; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Policies\Google\Chrome"; ValueType: string; ValueName: "DnsOverHttpsMode"; ValueData: "off"; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS"; ValueType: dword; ValueName: "Enabled"; ValueData: 0; Flags: uninsdeletevalue
 
 
 [UninstallRun]
@@ -321,12 +331,7 @@ begin
   if UpdateMode and (CurPageID = wpReady) then
   begin
     WizardForm.ReadyLabel.Caption :=
-      'This PC is already connected to TechAIPILOT.' +
-      Chr(13) + Chr(10) + Chr(13) + Chr(10) +
-      'Setup will update the agent to version {#MyAppVersion} and keep the ' +
-      'existing connection. No enrollment code is needed.' +
-      Chr(13) + Chr(10) + Chr(13) + Chr(10) +
-      'Click Install to continue.';
+      'Already connected - no enrollment code needed. Click Install to update.';
   end;
 end;
 

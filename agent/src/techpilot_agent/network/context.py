@@ -21,6 +21,8 @@ import subprocess
 import threading
 import time
 
+from techpilot_agent.network.dns import browser_dns_policy
+
 
 REFRESH_INTERVAL_SECONDS = 300
 NETSH_TIMEOUT_SECONDS = 15
@@ -245,6 +247,7 @@ def _refresh() -> None:
         context = {
             "wifi": collect_wifi(),
             **collect_system_context(),
+            "browser_dns": browser_dns_policy(),
             "collected_at": time.time(),
         }
 

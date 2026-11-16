@@ -13,12 +13,15 @@ import {
   extractAddresses,
   firewallState,
   flaggedConnections,
+  groupSites,
   isLiveConnection,
   networkKindLabel,
   openDoors,
   relativeTime,
   summarizeAntivirus,
   type AntivirusSummary,
+  type DomainReport,
+  type Site,
   type ConnectedAdapter,
   type FirewallPosture,
   type NetworkKind,
@@ -121,6 +124,7 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [details, setDetails] = useState<NetworkDeviceDetails | null>(null);
   const [history, setHistory] = useState<NetworkSnapshotHistory | null>(null);
+  const [domains, setDomains] = useState<DomainReport | null>(null);
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [deviceError, setDeviceError] = useState<string | null>(null);
 
@@ -162,7 +166,7 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
       const id = encodeURIComponent(deviceId);
 
       try {
-        const [d, h] = await Promise.all([
+        const [d, h, w] = await Promise.all([
           fetchJson<NetworkDeviceDetails>(
             `/api/v1/security/network/devices/${id}`,
             token,
@@ -171,14 +175,22 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
             `/api/v1/security/network/devices/${id}/snapshots`,
             token,
           ),
+          // Websites are optional: an older backend or a failure here
+          // must never break the rest of the page.
+          fetchJson<DomainReport>(
+            `/api/v1/security/network/devices/${id}/domains?hours=24`,
+            token,
+          ).catch(() => null),
         ]);
         setDetails(d);
         setHistory(h);
+        setDomains(w);
         setNow(new Date());
       } catch (error) {
         if (!quiet) {
           setDetails(null);
           setHistory(null);
+          setDomains(null);
         }
         setDeviceError(
           error instanceof Error
@@ -218,8 +230,8 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
   const snapshot = details?.snapshot ?? null;
 
   const assessment = useMemo(
-    () => assessDevice(snapshot, now),
-    [snapshot, now],
+    () => assessDevice(snapshot, now, domains),
+    [snapshot, now, domains],
   );
 
   const filteredDevices = useMemo(() => {
@@ -338,6 +350,8 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
                   />
 
                   <ProtectionSection snapshot={snapshot} />
+
+                  <WebsitesSection report={domains} snapshot={snapshot} now={now} />
 
                   <ActivitySection snapshot={snapshot} />
 
@@ -688,6 +702,151 @@ function FirewallProfiles({ posture }: { posture: FirewallPosture | null }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+// ---------------------------------------------------------
+// Websites
+// ---------------------------------------------------------
+
+const RISK_TONE: Record<Site["risk"], Severity> = {
+  risky: "risk",
+  unnecessary: "warn",
+  ok: "good",
+};
+
+function WebsitesSection({
+  report,
+  snapshot,
+  now,
+}: {
+  report: DomainReport | null;
+  snapshot: NetworkSnapshot;
+  now: Date;
+}) {
+  const [showAll, setShowAll] = useState(false);
+
+  const all = report ? groupSites(report.domains) : [];
+  const visible = all.filter((x) => x.category !== "system");
+  const hiddenSystem = all.length - visible.length;
+  const risky = visible.filter((x) => x.risk === "risky");
+  const unnecessary = visible.filter((x) => x.risk === "unnecessary");
+  const ordinary = visible.filter((x) => x.risk === "ok");
+  const shownOrdinary = showAll ? ordinary : ordinary.slice(0, 10);
+
+  const browserDns = snapshot.context?.browser_dns;
+  const browsersHidden = browserDns && !browserDns.edge && !browserDns.chrome;
+  const oldAgent = !browserDns;
+
+  const byCategory = new Map<string, Site[]>();
+  for (const x of unnecessary) {
+    const list = byCategory.get(x.categoryLabel) ?? [];
+    list.push(x);
+    byCategory.set(x.categoryLabel, list);
+  }
+
+  return (
+    <section className="ns-card">
+      <div className="ns-card-head">
+        <h3 className="ns-card-title">Websites</h3>
+        <span className="ns-muted">Last 24 hours</span>
+      </div>
+
+      {oldAgent && visible.length === 0 ? (
+        <p className="ns-muted">
+          Website names appear once this device runs agent 1.4.0 or later.
+        </p>
+      ) : (
+        <>
+          {browsersHidden && (
+            <p className="ns-alert-soft">
+              Browsing may be missing on this PC: Edge and Chrome are looking up
+              websites themselves. Installing agent 1.4.0 with the latest setup
+              fixes this.
+            </p>
+          )}
+
+          <ul className="ns-chips ns-chips-tight">
+            <li className={risky.length ? "is-risk" : undefined}>
+              {risky.length ? `${risky.length} dangerous` : "No dangerous sites"}
+            </li>
+            <li className={unnecessary.length ? "is-warn" : undefined}>
+              {unnecessary.length ? `${unnecessary.length} not for work` : "No non-work sites"}
+            </li>
+            <li className="is-neutral">{visible.length} sites in total</li>
+          </ul>
+
+          {risky.length > 0 && (
+            <ul className="ns-flags">
+              {risky.map((x) => (
+                <li key={x.site}>
+                  <SeverityMark severity="risk" />
+                  <div>
+                    <strong>{x.site}</strong>
+                    <span className="ns-flag-reason">{x.reason}</span>
+                    <small>
+                      {x.apps.length ? x.apps.map(prettyApp).join(", ") : "Unknown app"} ·{" "}
+                      {relativeTime(new Date(x.lastSeen), now)}
+                    </small>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {byCategory.size > 0 && (
+            <div className="ns-site-groups">
+              {[...byCategory.entries()].map(([label, sites]) => (
+                <div key={label} className="ns-site-group">
+                  <h4 className="ns-subtitle">{label}</h4>
+                  <ul className="ns-site-list">
+                    {sites.map((x) => (
+                      <SiteRow key={x.site} site={x} now={now} />
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {ordinary.length > 0 && (
+            <>
+              <h4 className="ns-subtitle">Other websites</h4>
+              <ul className="ns-site-list">
+                {shownOrdinary.map((x) => (
+                  <SiteRow key={x.site} site={x} now={now} />
+                ))}
+              </ul>
+              {ordinary.length > 10 && (
+                <button type="button" className="ns-link" onClick={() => setShowAll((v) => !v)}>
+                  {showAll ? "Show fewer" : `Show all ${ordinary.length} sites`}
+                </button>
+              )}
+            </>
+          )}
+
+          {visible.length === 0 && !browsersHidden && (
+            <p className="ns-muted">No websites recorded in the last 24 hours.</p>
+          )}
+
+          <p className="ns-note">
+            {hiddenSystem > 0 &&
+              `${hiddenSystem} Windows and Microsoft background service${hiddenSystem > 1 ? "s" : ""} hidden. `}
+            Only website names are recorded, never page addresses or content.
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+function SiteRow({ site, now }: { site: Site; now: Date }) {
+  return (
+    <li className={`ns-site is-${RISK_TONE[site.risk]}`}>
+      <strong title={site.hostnames.join(", ")}>{site.site}</strong>
+      <span>{site.apps.length ? site.apps.map(prettyApp).join(", ") : "—"}</span>
+      <small>{relativeTime(new Date(site.lastSeen), now)}</small>
+    </li>
   );
 }
 

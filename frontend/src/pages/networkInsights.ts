@@ -61,6 +61,7 @@ export type NetworkContext = {
     signature_age_days?: number;
   } | null;
   antivirus?: { name?: string; enabled?: boolean | null; up_to_date?: boolean | null }[];
+  browser_dns?: { edge?: boolean; chrome?: boolean };
   error?: string;
 };
 
@@ -714,6 +715,150 @@ export function summarizeAntivirus(context: NetworkContext | null | undefined): 
 }
 
 // ---------------------------------------------------------
+// Websites (agent 1.4.0+)
+// ---------------------------------------------------------
+
+export type DomainRisk = "risky" | "unnecessary" | "ok";
+
+export type DomainRecord = {
+  domain: string;
+  category: string;
+  category_label: string;
+  risk: DomainRisk;
+  reason: string | null;
+  apps: string[];
+  hits: number;
+  first_seen: string;
+  last_seen: string;
+};
+
+export type DomainReport = {
+  device_id: string;
+  hours: number;
+  summary: { risky: number; unnecessary: number; ok: number; system: number; total: number };
+  domains: DomainRecord[];
+};
+
+export type Site = {
+  site: string;
+  hostnames: string[];
+  category: string;
+  categoryLabel: string;
+  risk: DomainRisk;
+  reason: string | null;
+  apps: string[];
+  hits: number;
+  lastSeen: string;
+};
+
+const SECOND_LEVEL = new Set([
+  "co.in", "net.in", "org.in", "gov.in", "ac.in", "edu.in", "res.in", "firm.in",
+  "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au",
+  "co.jp", "com.br", "com.sg", "com.my", "co.za", "com.cn", "com.hk", "co.nz",
+]);
+
+// Big platforms serve images and video from separate hostnames.
+// Show them under the brand people recognise.
+const BRAND_OF: Record<string, string> = {
+  "ytimg.com": "youtube.com",
+  "googlevideo.com": "youtube.com",
+  "youtube-nocookie.com": "youtube.com",
+  "youtu.be": "youtube.com",
+  "fbcdn.net": "facebook.com",
+  "fbsbx.com": "facebook.com",
+  "fb.com": "facebook.com",
+  "cdninstagram.com": "instagram.com",
+  "twimg.com": "x.com",
+  "twitter.com": "x.com",
+  "t.co": "x.com",
+  "tiktokcdn.com": "tiktok.com",
+  "tiktokv.com": "tiktok.com",
+  "tiktokcdn-eu.com": "tiktok.com",
+  "redd.it": "reddit.com",
+  "redditmedia.com": "reddit.com",
+  "redditstatic.com": "reddit.com",
+  "pinimg.com": "pinterest.com",
+  "nflxvideo.net": "netflix.com",
+  "nflximg.net": "netflix.com",
+  "nflxso.net": "netflix.com",
+  "nflxext.com": "netflix.com",
+  "aiv-cdn.net": "primevideo.com",
+  "aiv-delivery.net": "primevideo.com",
+  "scdn.co": "spotify.com",
+  "spotifycdn.com": "spotify.com",
+  "ttvnw.net": "twitch.tv",
+  "jtvnw.net": "twitch.tv",
+  "steamstatic.com": "steampowered.com",
+  "steamcommunity.com": "steampowered.com",
+  "steamcontent.com": "steampowered.com",
+  "rbxcdn.com": "roblox.com",
+  "sndcdn.com": "soundcloud.com",
+  "discordapp.com": "discord.com",
+  "discordapp.net": "discord.com",
+  "discord.gg": "discord.com",
+  "licdn.com": "linkedin.com",
+  "whatsapp.net": "whatsapp.com",
+};
+
+/** www.youtube.com -> youtube.com, abc.bbc.co.uk -> bbc.co.uk, i.ytimg.com -> youtube.com */
+export function siteOf(domain: string): string {
+  const labels = domain.toLowerCase().replace(/\.$/, "").split(".");
+  let site = labels.join(".");
+  if (labels.length > 2) {
+    const lastTwo = labels.slice(-2).join(".");
+    site = SECOND_LEVEL.has(lastTwo) ? labels.slice(-3).join(".") : lastTwo;
+  }
+  return BRAND_OF[site] ?? site;
+}
+
+const RISK_RANK: Record<DomainRisk, number> = { risky: 0, unnecessary: 1, ok: 2 };
+
+export function groupSites(domains: DomainRecord[]): Site[] {
+  const sites = new Map<string, Site>();
+
+  for (const d of domains) {
+    const key = d.risk === "risky" ? d.domain : siteOf(d.domain);
+    let s = sites.get(key);
+
+    if (!s) {
+      s = {
+        site: key,
+        hostnames: [],
+        category: d.category,
+        categoryLabel: d.category_label,
+        risk: d.risk,
+        reason: d.reason,
+        apps: [],
+        hits: 0,
+        lastSeen: d.last_seen,
+      };
+      sites.set(key, s);
+    }
+
+    s.hostnames.push(d.domain);
+    s.hits += d.hits;
+    for (const app of d.apps) if (!s.apps.includes(app)) s.apps.push(app);
+    if (new Date(d.last_seen) > new Date(s.lastSeen)) s.lastSeen = d.last_seen;
+
+    // A site takes the worst classification of any of its hostnames.
+    const worse = RISK_RANK[d.risk] < RISK_RANK[s.risk];
+    const moreSpecific =
+      d.risk === s.risk && (s.category === "other" || s.category === "system") && d.category !== "other";
+
+    if (worse || moreSpecific) {
+      s.risk = d.risk;
+      s.category = d.category;
+      s.categoryLabel = d.category_label;
+      s.reason = d.reason;
+    }
+  }
+
+  return [...sites.values()].sort(
+    (a, b) => RISK_RANK[a.risk] - RISK_RANK[b.risk] || b.hits - a.hits,
+  );
+}
+
+// ---------------------------------------------------------
 // Verdict
 // ---------------------------------------------------------
 
@@ -742,6 +887,7 @@ export function firewallState(
 export function assessDevice(
   snapshot: NetworkSnapshot | null,
   now: Date = new Date(),
+  domains: DomainReport | null = null,
 ): DeviceAssessment {
   if (!snapshot) {
     return {
@@ -865,6 +1011,36 @@ export function assessDevice(
 
   if (serious.length === 0 && unusual.length === 0) {
     goodNews.push("No suspicious connections");
+  }
+
+  // Websites
+  if (domains) {
+    const sites = groupSites(domains.domains).filter((x) => x.category !== "system");
+    const risky = sites.filter((x) => x.risk === "risky");
+    const unnecessary = sites.filter((x) => x.risk === "unnecessary");
+
+    if (risky.length > 0) {
+      problems.push({
+        severity: "risk",
+        title:
+          risky.length === 1
+            ? `Visited a dangerous site: ${risky[0].site}`
+            : `Visited ${risky.length} dangerous sites`,
+        detail: `${risky[0].reason ?? "Listed as dangerous"}. Check this device for malware.`,
+      });
+    } else {
+      goodNews.push("No dangerous websites");
+    }
+
+    if (unnecessary.length > 0) {
+      const names = unnecessary.slice(0, 3).map((x) => x.site);
+      const more = unnecessary.length - names.length;
+      problems.push({
+        severity: "warn",
+        title: `${unnecessary.length} non-work site${unnecessary.length > 1 ? "s" : ""} in the last ${domains.hours} hours`,
+        detail: `${joinWords(names)}${more > 0 ? ` and ${more} more` : ""}.`,
+      });
+    }
   }
 
   const order = { risk: 0, warn: 1, info: 2, good: 3 };

@@ -19,6 +19,7 @@ from techpilot_agent.runtime_guard import (
 from techpilot_agent.network.collector import collect_network_telemetry
 from techpilot_agent.network.firewall import collect_firewall_posture
 from techpilot_agent.network.context import get_network_context
+from techpilot_agent.network.dns import collect_domain_observations, start_dns_sampler
 from remote.stream import RemoteScreenStreamer
 from remote.control import RemoteControlClient
 
@@ -31,7 +32,7 @@ SESSION_CHECK_INTERVAL = 2
 SESSION_STATUS_INTERVAL = 1
 HEARTBEAT_INTERVAL = 30
 NETWORK_TELEMETRY_INTERVAL = 60
-AGENT_VERSION = "1.3.0"
+AGENT_VERSION = "1.4.0"
 
 # Upper limit only. The stream is paced by the viewer's frame
 # acknowledgements, so a slow network lowers the real frame rate
@@ -516,7 +517,7 @@ def main(
     )
 
     shell_worker.start()
-
+    start_dns_sampler()
     print(
         "[SHELL] Shell worker started."
     )
@@ -578,6 +579,7 @@ def main(
                             collect_firewall_posture()
                         )
                         network_data["context"] = get_network_context()
+                        network_data["domains"] = collect_domain_observations(network_data.get("connections", []))                       
                         network_response = (
                             client.send_network_telemetry(
                                 network_data

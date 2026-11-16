@@ -1,7 +1,8 @@
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -11,6 +12,7 @@ from app.models.agent import Agent
 from app.models.alert import Alert
 from app.models.firewall_posture import FirewallPosture
 from app.models.network_connection import NetworkConnection
+from app.models.network_domain import NetworkDomain
 from app.models.network_interface import NetworkInterface
 from app.models.network_listener import NetworkListener
 from app.models.network_snapshot import NetworkSnapshot
@@ -23,6 +25,12 @@ from app.services.network_detection import (
     detect_suspicious_outbound,
     detect_unexpected_listeners,
 )
+from app.services.domain_intel import (
+    CATEGORY_LABELS,
+    classify,
+    intel_status,
+    start_domain_intel,
+)
 from app.services.organization import get_user_default_organization
 
 
@@ -30,6 +38,12 @@ router = APIRouter(
     prefix="/api/v1/security/network",
     tags=["Network Security"],
 )
+
+# Download threat and category lists in the background as soon as
+# the API starts, so the first reports are already classified.
+start_domain_intel()
+
+MAX_DOMAINS_PER_REPORT = 500
 
 # Network context is small (a few hundred bytes). Anything far
 # bigger than this is not something the agent should be sending.
@@ -85,6 +99,86 @@ def _clean_context(raw: Any) -> dict | None:
         return {"error": "Network context too large; ignored."}
 
     return json.loads(encoded)
+
+
+def _store_domains(
+    db: Session,
+    device_id: str,
+    organization_id: int,
+    raw_domains: Any,
+) -> int:
+    """
+    Upsert website names reported by agent 1.4.0+.
+
+    One row per device per domain: last_seen, hits and apps are updated
+    in place, and the category is re-checked every time so newly
+    downloaded threat lists also apply to sites seen earlier.
+    """
+
+    if not isinstance(raw_domains, list):
+        return 0
+
+    cleaned: dict[str, set[str]] = {}
+
+    for item in raw_domains[:MAX_DOMAINS_PER_REPORT]:
+        if not isinstance(item, dict):
+            continue
+
+        name = str(item.get("domain") or "").strip().lower().rstrip(".")
+        if not name or "." not in name or len(name) > 255:
+            continue
+
+        apps = {
+            str(app)[:100]
+            for app in (item.get("apps") or [])
+            if isinstance(app, str) and app
+        }
+
+        cleaned.setdefault(name, set()).update(list(apps)[:10])
+
+    if not cleaned:
+        return 0
+
+    now = datetime.now(timezone.utc)
+
+    existing = {
+        row.domain: row
+        for row in db.query(NetworkDomain)
+        .filter(
+            NetworkDomain.device_id == device_id,
+            NetworkDomain.domain.in_(list(cleaned)),
+        )
+        .all()
+    }
+
+    for name, apps in cleaned.items():
+        category, risk, reason = classify(name)
+        row = existing.get(name)
+
+        if row is None:
+            db.add(
+                NetworkDomain(
+                    organization_id=organization_id,
+                    device_id=device_id,
+                    domain=name,
+                    first_seen=now,
+                    last_seen=now,
+                    hits=1,
+                    apps=sorted(apps) or None,
+                    category=category,
+                    risk=risk,
+                    reason=reason,
+                )
+            )
+        else:
+            row.last_seen = now
+            row.hits = (row.hits or 0) + 1
+            row.apps = sorted(set(row.apps or []) | apps)[:15] or None
+            row.category = category
+            row.risk = risk
+            row.reason = reason
+
+    return len(cleaned)
 
 
 @router.post("/telemetry")
@@ -277,6 +371,17 @@ def receive_network_telemetry(
     )
 
     # ---------------------------------------------------------
+    # Website names (agent 1.4.0+)
+    # ---------------------------------------------------------
+
+    domains_stored = _store_domains(
+        db,
+        current_agent.device_id,
+        organization_id,
+        network_data.get("domains"),
+    )
+
+    # ---------------------------------------------------------
     # N3.1 — Firewall Disabled Detection
     # ---------------------------------------------------------
 
@@ -375,6 +480,7 @@ def receive_network_telemetry(
         "listeners_stored": len(listener_records),
         "firewall_stored": True,
         "context_stored": context is not None,
+        "domains_stored": domains_stored,
         "alerts_generated": len(alerts),
     }
 
@@ -701,4 +807,87 @@ def get_network_device_snapshots(
             }
             for snapshot in snapshots
         ],
+    }
+
+
+
+# =========================================================
+# NETWORK SECURITY WEBSITES
+# =========================================================
+
+_RISK_ORDER = {"risky": 0, "unnecessary": 1, "ok": 2}
+
+
+@router.get("/devices/{device_id}/domains")
+def get_network_device_domains(
+    device_id: str,
+    hours: int = Query(24, ge=1, le=24 * 30),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    organization = _require_user_organization(
+        db,
+        current_user,
+    )
+
+    agent = (
+        db.query(Agent)
+        .filter(
+            Agent.device_id == device_id,
+            Agent.organization_id == organization.id,
+        )
+        .first()
+    )
+
+    if agent is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found.",
+        )
+
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    rows = (
+        db.query(NetworkDomain)
+        .filter(
+            NetworkDomain.device_id == device_id,
+            NetworkDomain.organization_id == organization.id,
+            NetworkDomain.last_seen >= since,
+        )
+        .order_by(NetworkDomain.hits.desc())
+        .limit(2000)
+        .all()
+    )
+
+    rows.sort(key=lambda r: (_RISK_ORDER.get(r.risk, 3), -(r.hits or 0)))
+
+    summary = {"risky": 0, "unnecessary": 0, "ok": 0, "system": 0, "total": len(rows)}
+    categories: dict[str, int] = {}
+
+    for row in rows:
+        summary[row.risk] = summary.get(row.risk, 0) + 1
+        if row.category == "system":
+            summary["system"] += 1
+        categories[row.category] = categories.get(row.category, 0) + 1
+
+    return {
+        "device_id": device_id,
+        "hours": hours,
+        "summary": summary,
+        "categories": categories,
+        "domains": [
+            {
+                "domain": row.domain,
+                "category": row.category,
+                "category_label": CATEGORY_LABELS.get(row.category, row.category),
+                "risk": row.risk,
+                "reason": row.reason,
+                "apps": row.apps or [],
+                "hits": row.hits,
+                "first_seen": row.first_seen,
+                "last_seen": row.last_seen,
+            }
+            for row in rows
+        ],
+        "lists": intel_status(),
     }
