@@ -1,3 +1,6 @@
+import json
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -17,12 +20,6 @@ from app.services.network_detection import (
     detect_firewall_disabled,
     detect_port_scan,
     detect_rdp_exposure,
-    detect_unexpected_listeners,
-)
-from app.services.network_detection import (
-    detect_firewall_disabled,
-    detect_port_scan,
-    detect_rdp_exposure,
     detect_suspicious_outbound,
     detect_unexpected_listeners,
 )
@@ -33,6 +30,10 @@ router = APIRouter(
     prefix="/api/v1/security/network",
     tags=["Network Security"],
 )
+
+# Network context is small (a few hundred bytes). Anything far
+# bigger than this is not something the agent should be sending.
+MAX_CONTEXT_BYTES = 32_000
 
 
 def _require_agent_organization(current_agent: Agent) -> int:
@@ -66,6 +67,26 @@ def _require_user_organization(
     return organization
 
 
+def _clean_context(raw: Any) -> dict | None:
+    """
+    Accept the agent's network context only if it is a reasonably
+    sized JSON object. Older agents don't send it at all.
+    """
+
+    if not isinstance(raw, dict):
+        return None
+
+    try:
+        encoded = json.dumps(raw, default=str)
+    except (TypeError, ValueError):
+        return None
+
+    if len(encoded) > MAX_CONTEXT_BYTES:
+        return {"error": "Network context too large; ignored."}
+
+    return json.loads(encoded)
+
+
 @router.post("/telemetry")
 def receive_network_telemetry(
     network_data: dict,
@@ -79,6 +100,7 @@ def receive_network_telemetry(
     tcp_listeners = network_data.get("tcp_listeners", [])
     udp_bindings = network_data.get("udp_bindings", [])
     firewall = network_data.get("firewall", {})
+    context = _clean_context(network_data.get("context"))
 
     if not isinstance(interfaces, list):
         raise HTTPException(
@@ -139,6 +161,7 @@ def receive_network_telemetry(
     snapshot = NetworkSnapshot(
         device_id=current_agent.device_id,
         organization_id=organization_id,
+        context=context,
     )
 
     db.add(snapshot)
@@ -301,6 +324,7 @@ def receive_network_telemetry(
     )
 
     alerts.extend(rdp_alerts)
+
     # ---------------------------------------------------------
     # N3.4 — Port Scan Detection
     # ---------------------------------------------------------
@@ -350,9 +374,9 @@ def receive_network_telemetry(
         "connections_stored": len(connections),
         "listeners_stored": len(listener_records),
         "firewall_stored": True,
+        "context_stored": context is not None,
         "alerts_generated": len(alerts),
     }
-
 
 
 # =========================================================
@@ -381,10 +405,18 @@ def get_network_security_overview(
         or 0
     )
 
+    # Count only devices that are registered to this organization
+    # right now. Snapshots from devices that were later moved or
+    # re-registered used to be counted too ("4 of 2 devices").
     reporting_devices = (
         db.query(func.count(func.distinct(NetworkSnapshot.device_id)))
+        .join(
+            Agent,
+            Agent.device_id == NetworkSnapshot.device_id,
+        )
         .filter(
             NetworkSnapshot.organization_id == organization_id,
+            Agent.organization_id == organization_id,
         )
         .scalar()
         or 0
@@ -509,6 +541,15 @@ def get_network_device_details(
             detail="Device not found.",
         )
 
+    device_info = {
+        "device_id": agent.device_id,
+        "hostname": agent.hostname,
+        "operating_system": agent.operating_system,
+        "os_version": agent.os_version,
+        "agent_version": agent.agent_version,
+        "last_seen": agent.last_seen,
+    }
+
     snapshot = (
         db.query(NetworkSnapshot)
         .filter(
@@ -523,29 +564,16 @@ def get_network_device_details(
 
     if snapshot is None:
         return {
-            "device": {
-                "device_id": agent.device_id,
-                "hostname": agent.hostname,
-                "operating_system": agent.operating_system,
-                "os_version": agent.os_version,
-                "agent_version": agent.agent_version,
-                "last_seen": agent.last_seen,
-            },
+            "device": device_info,
             "snapshot": None,
         }
 
     return {
-        "device": {
-            "device_id": agent.device_id,
-            "hostname": agent.hostname,
-            "operating_system": agent.operating_system,
-            "os_version": agent.os_version,
-            "agent_version": agent.agent_version,
-            "last_seen": agent.last_seen,
-        },
+        "device": device_info,
         "snapshot": {
             "id": snapshot.id,
             "collected_at": snapshot.collected_at,
+            "context": snapshot.context,
             "interfaces": [
                 {
                     "id": interface.id,

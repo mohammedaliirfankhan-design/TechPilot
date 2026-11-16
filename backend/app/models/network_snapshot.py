@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -39,6 +39,13 @@ class NetworkSnapshot(Base):
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
         index=True,
+    )
+
+    # Wi-Fi name, network type (Public/Private), gateway, DNS and
+    # antivirus status, as reported by agent 1.3.0+. Null for older agents.
+    context: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON,
+        nullable=True,
     )
 
     interfaces: Mapped[list["NetworkInterface"]] = relationship(

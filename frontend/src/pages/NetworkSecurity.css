@@ -746,3 +746,44 @@
 @media (prefers-reduced-motion: reduce) {
   .ns-advanced summary span::before { transition: none; }
 }
+
+/* ---------- Phase 2: connection facts ---------- */
+
+.ns-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.ns-card-head .ns-card-title {
+  margin-bottom: 0 !important;
+}
+
+.ns-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--ns-border);
+}
+
+.ns-facts dt {
+  color: var(--ns-muted);
+  font-size: 12px;
+}
+
+.ns-facts dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--ns-text);
+  overflow-wrap: anywhere;
+}
+
+.ns-note {
+  margin-top: 14px !important;
+  color: var(--ns-muted);
+  font-size: 12px;
+}

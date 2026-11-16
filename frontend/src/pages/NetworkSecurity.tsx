@@ -8,15 +8,20 @@ import {
   appActivity,
   assessDevice,
   connectedAdapters,
+  describeNetwork,
   describeRemotePort,
   extractAddresses,
   firewallState,
   flaggedConnections,
   isLiveConnection,
+  networkKindLabel,
   openDoors,
   relativeTime,
+  summarizeAntivirus,
+  type AntivirusSummary,
   type ConnectedAdapter,
   type FirewallPosture,
+  type NetworkKind,
   type NetworkSnapshot,
   type Severity,
   type Verdict,
@@ -480,16 +485,38 @@ function ConnectionSection({
   snapshot: NetworkSnapshot;
 }) {
   const adapters = connectedAdapters(snapshot.interfaces);
-  const primary = adapters.find((a) => a.kind !== "vpn") ?? adapters[0];
   const vpn = adapters.find((a) => a.kind === "vpn");
+  const net = describeNetwork(snapshot);
+  const primary = net.adapter;
 
   const online = snapshot.connections.some(
     (c) => isLiveConnection(c) && addressScope(c.remote_address) === "internet",
   );
 
+  const linkSub = [
+    net.signal !== null ? `Signal ${net.signal}%` : null,
+    !net.signal && primary?.speedMbps ? formatSpeed(primary.speedMbps) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const kindTone: Record<NetworkKind, string> = {
+    public: "warn",
+    private: "good",
+    office: "good",
+    unknown: "info",
+  };
+
   return (
     <section className="ns-card">
-      <h3 className="ns-card-title">Connection</h3>
+      <div className="ns-card-head">
+        <h3 className="ns-card-title">Connection</h3>
+        {primary && net.kind !== "unknown" && (
+          <span className={`ns-status is-${kindTone[net.kind]}`}>
+            {networkKindLabel(net.kind)}
+          </span>
+        )}
+      </div>
 
       {!primary ? (
         <p className="ns-muted">
@@ -499,14 +526,19 @@ function ConnectionSection({
       ) : (
         <>
           <ol className="ns-chain" aria-label="Connection path">
-            <ChainNode icon="laptop" title={hostname} sub="This device" />
+            <ChainNode icon="laptop" title={hostname} sub={primary.ipv4 ?? "This device"} />
             <ChainNode
               icon={ADAPTER_ICON[primary.kind]}
-              title={ADAPTER_LABEL[primary.kind]}
-              sub={primary.speedMbps ? formatSpeed(primary.speedMbps) : primary.name}
+              title={net.name ?? ADAPTER_LABEL[primary.kind]}
+              sub={linkSub || ADAPTER_LABEL[primary.kind]}
             />
             {vpn && <ChainNode icon="lock" title="VPN" sub="Traffic hidden" tone="good" />}
-            <ChainNode icon="router" title="Router" sub={primary.ipv4 ?? "No address"} />
+            <ChainNode
+              icon="router"
+              title="Router"
+              sub={net.gateway ?? "Address not reported"}
+              tone={net.gateway ? undefined : "muted"}
+            />
             <ChainNode
               icon="globe"
               title="Internet"
@@ -514,6 +546,32 @@ function ConnectionSection({
               tone={online ? undefined : "muted"}
             />
           </ol>
+
+          {(net.security || net.dns.length > 0) && (
+            <dl className="ns-facts">
+              {net.security && (
+                <div>
+                  <dt>Wi-Fi security</dt>
+                  <dd className={net.openWifi ? "ns-text-warn" : undefined}>
+                    {net.openWifi ? "None (open network)" : net.security}
+                  </dd>
+                </div>
+              )}
+              {net.dns.length > 0 && (
+                <div>
+                  <dt>Name lookups (DNS)</dt>
+                  <dd>{net.dns.slice(0, 2).join(", ")}</dd>
+                </div>
+              )}
+            </dl>
+          )}
+
+          {!snapshot.context && (
+            <p className="ns-note">
+              Wi-Fi name, router and network type appear once this device runs
+              agent 1.3.0 or later.
+            </p>
+          )}
         </>
       )}
     </section>
@@ -548,6 +606,13 @@ function ChainNode({
 
 function ProtectionSection({ snapshot }: { snapshot: NetworkSnapshot }) {
   const state = firewallState(snapshot.firewall_posture);
+  const av = summarizeAntivirus(snapshot.context);
+  const avTone: Record<AntivirusSummary["state"], Severity> = {
+    on: "good",
+    outdated: "warn",
+    off: "risk",
+    unknown: "info",
+  };
   const doors = openDoors(snapshot.listeners).filter(
     (d) => d.reachableFromNetwork && d.info.exposure !== "normal",
   );
@@ -571,6 +636,17 @@ function ProtectionSection({ snapshot }: { snapshot: NetworkSnapshot }) {
       </div>
 
       {state !== "unknown" && <FirewallProfiles posture={snapshot.firewall_posture} />}
+
+      {av.state !== "unknown" && (
+        <div className="ns-row ns-row-top">
+          <span className="ns-row-label">
+            <Icon name="shield" /> Antivirus
+          </span>
+          <span className={`ns-status is-${avTone[av.state]}`} title={av.detail}>
+            {av.state === "on" ? av.name : av.state === "outdated" ? "Out of date" : "Off"}
+          </span>
+        </div>
+      )}
 
       <div className="ns-row ns-row-top">
         <span className="ns-row-label">

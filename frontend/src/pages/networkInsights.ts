@@ -43,9 +43,31 @@ export type FirewallPosture = {
   error: string | null;
 };
 
+export type NetworkContext = {
+  wifi?: {
+    adapter?: string;
+    ssid?: string | null;
+    signal_percent?: number | null;
+    authentication?: string;
+    radio_type?: string;
+    band?: string;
+  }[];
+  profiles?: { name?: string; alias?: string; category?: string; ipv4?: string }[];
+  routes?: { alias?: string; gateway?: string; dns?: string[] }[];
+  defender?: {
+    service?: boolean;
+    antivirus?: boolean;
+    realtime?: boolean;
+    signature_age_days?: number;
+  } | null;
+  antivirus?: { name?: string; enabled?: boolean | null; up_to_date?: boolean | null }[];
+  error?: string;
+};
+
 export type NetworkSnapshot = {
   id: number;
   collected_at: string;
+  context?: NetworkContext | null;
   interfaces: NetworkInterface[];
   connections: NetworkConnection[];
   listeners: NetworkListener[];
@@ -574,6 +596,124 @@ function joinWords(items: string[]) {
 }
 
 // ---------------------------------------------------------
+// Network context (agent 1.3.0+)
+// ---------------------------------------------------------
+
+export type NetworkKind = "public" | "private" | "office" | "unknown";
+
+export type NetworkDescription = {
+  adapter: ConnectedAdapter | null;
+  name: string | null;
+  signal: number | null;
+  security: string | null;
+  openWifi: boolean;
+  kind: NetworkKind;
+  gateway: string | null;
+  dns: string[];
+};
+
+const NETWORK_KIND_LABEL: Record<NetworkKind, string> = {
+  public: "Public network",
+  private: "Private network",
+  office: "Company network",
+  unknown: "Network type unknown",
+};
+
+export function networkKindLabel(kind: NetworkKind) {
+  return NETWORK_KIND_LABEL[kind];
+}
+
+function sameAlias(a?: string, b?: string) {
+  return !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+export function describeNetwork(snapshot: NetworkSnapshot): NetworkDescription {
+  const adapters = connectedAdapters(snapshot.interfaces);
+  const adapter = adapters.find((a) => a.kind !== "vpn") ?? adapters[0] ?? null;
+  const ctx = snapshot.context ?? {};
+
+  const wifi =
+    ctx.wifi?.find((w) => sameAlias(w.adapter, adapter?.name)) ??
+    (adapter?.kind === "wifi" ? ctx.wifi?.[0] : undefined);
+
+  const profile =
+    ctx.profiles?.find((p) => sameAlias(p.alias, adapter?.name)) ?? ctx.profiles?.[0];
+
+  const route =
+    ctx.routes?.find((r) => sameAlias(r.alias, adapter?.name)) ?? ctx.routes?.[0];
+
+  const category = (profile?.category ?? "").toLowerCase();
+  const kind: NetworkKind = category.startsWith("domain")
+    ? "office"
+    : category === "private"
+      ? "private"
+      : category === "public"
+        ? "public"
+        : "unknown";
+
+  // Windows names the connection profile after the Wi-Fi network,
+  // so it's a good fallback when Location blocks netsh from showing the SSID.
+  const name = wifi?.ssid || profile?.name || null;
+  const security = wifi?.authentication ?? null;
+
+  return {
+    adapter,
+    name,
+    signal: wifi?.signal_percent ?? null,
+    security,
+    openWifi: !!security && /^open$/i.test(security.trim()),
+    kind,
+    gateway: route?.gateway ?? null,
+    dns: route?.dns ?? [],
+  };
+}
+
+export type AntivirusSummary = {
+  state: "on" | "off" | "outdated" | "unknown";
+  name: string | null;
+  detail: string;
+};
+
+export function summarizeAntivirus(context: NetworkContext | null | undefined): AntivirusSummary {
+  const products = context?.antivirus ?? [];
+  const defender = context?.defender ?? null;
+
+  const active = products.find((p) => p.enabled);
+  const defenderOn = defender?.realtime === true && defender?.antivirus !== false;
+  const age = defender?.signature_age_days;
+
+  if (active || defenderOn) {
+    const name = active?.name ?? "Microsoft Defender";
+    const outdated =
+      active?.up_to_date === false ||
+      (defenderOn && !active && typeof age === "number" && age > 7);
+
+    if (outdated) {
+      return {
+        state: "outdated",
+        name,
+        detail:
+          typeof age === "number"
+            ? `${name} is on, but its virus definitions are ${age} days old.`
+            : `${name} is on, but its virus definitions are out of date.`,
+      };
+    }
+
+    return { state: "on", name, detail: `${name} is protecting this device.` };
+  }
+
+  if (products.length > 0 || defender) {
+    return {
+      state: "off",
+      name: products[0]?.name ?? "Microsoft Defender",
+      detail: "No antivirus is actively protecting this device.",
+    };
+  }
+
+  return { state: "unknown", name: null, detail: "Antivirus status not reported yet." };
+}
+
+// ---------------------------------------------------------
 // Verdict
 // ---------------------------------------------------------
 
@@ -626,11 +766,33 @@ export function assessDevice(
     });
   }
 
+  const net = describeNetwork(snapshot);
+
+  // Wi-Fi without a password
+  if (net.openWifi) {
+    problems.push({
+      severity: "warn",
+      title: "On an open Wi-Fi network",
+      detail: `${net.name ?? "This Wi-Fi"} has no password, so others nearby can see unencrypted traffic.`,
+    });
+  }
+
   // Firewall
   const fwState = firewallState(snapshot.firewall_posture);
   const fw = summarizeFirewall(snapshot.firewall_posture);
+  const posture = snapshot.firewall_posture;
+  const offForThisNetwork =
+    (net.kind === "public" && posture?.public_enabled === false) ||
+    (net.kind === "private" && posture?.private_enabled === false) ||
+    (net.kind === "office" && posture?.domain_enabled === false);
 
-  if (fwState === "on") {
+  if (offForThisNetwork) {
+    problems.push({
+      severity: "risk",
+      title: "Firewall is off on this network",
+      detail: `The firewall is switched off for ${networkKindLabel(net.kind).toLowerCase()}s, which is what this device is on right now.`,
+    });
+  } else if (fwState === "on") {
     goodNews.push("Firewall on");
   } else if (fwState === "unknown") {
     problems.push({
@@ -639,7 +801,24 @@ export function assessDevice(
       detail: "The agent didn't get an answer from Windows this time. It will try again on the next report.",
     });
   } else {
-    problems.push({ severity: fw.severity, title: fw.headline, detail: fw.detail });
+    // Off for a network type the device isn't on right now: worth fixing,
+    // but not an immediate risk.
+    const onOtherNetwork = net.kind === "private" || net.kind === "office";
+    problems.push({
+      severity: onOtherNetwork ? "warn" : fw.severity,
+      title: fw.headline,
+      detail: fw.detail,
+    });
+  }
+
+  // Antivirus
+  const av = summarizeAntivirus(snapshot.context);
+  if (av.state === "on") {
+    goodNews.push("Antivirus on");
+  } else if (av.state === "off") {
+    problems.push({ severity: "risk", title: "Antivirus is off", detail: av.detail });
+  } else if (av.state === "outdated") {
+    problems.push({ severity: "warn", title: "Antivirus is out of date", detail: av.detail });
   }
 
   // Open doors: only escalate when we KNOW the firewall is off.
