@@ -37,7 +37,7 @@ SESSION_CHECK_INTERVAL = 2
 SESSION_STATUS_INTERVAL = 1
 HEARTBEAT_INTERVAL = 30
 NETWORK_TELEMETRY_INTERVAL = 60
-AGENT_VERSION = "1.4.0"
+AGENT_VERSION = "1.5.0"
 
 # Upper limit only. The stream is paced by the viewer's frame
 # acknowledgements, so a slow network lowers the real frame rate
