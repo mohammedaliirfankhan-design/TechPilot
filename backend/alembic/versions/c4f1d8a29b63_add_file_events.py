@@ -4,7 +4,7 @@ Creates the file_events table that stores download and USB activity
 reported by agent 1.5.0+ (metadata only).
 
 Revision ID: c4f1d8a29b63
-Revises: a7c2e91b4d10
+Revises: b81d4f0c2e57
 Create Date: 2026-11-18 12:30:00.000000
 
 """
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "c4f1d8a29b63"
-down_revision: Union[str, Sequence[str], None] = "a7c2e91b4d10"
+down_revision: Union[str, Sequence[str], None] = "b81d4f0c2e57"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
