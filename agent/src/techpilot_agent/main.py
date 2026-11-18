@@ -20,6 +20,11 @@ from techpilot_agent.network.collector import collect_network_telemetry
 from techpilot_agent.network.firewall import collect_firewall_posture
 from techpilot_agent.network.context import get_network_context
 from techpilot_agent.network.dns import collect_domain_observations, start_dns_sampler
+from techpilot_agent.identity.device_id import DATA_DIR
+from techpilot_agent.network.file_activity import (
+    FileActivityCollector,
+    POLL_INTERVAL_SECONDS as FILE_ACTIVITY_INTERVAL,
+)
 from remote.stream import RemoteScreenStreamer
 from remote.control import RemoteControlClient
 
@@ -526,6 +531,9 @@ def main(
 
     last_network_telemetry = 0.0
 
+    file_activity = FileActivityCollector(state_dir=DATA_DIR)
+    last_file_activity = 0.0
+
     try:
 
         # =================================================
@@ -597,6 +605,26 @@ def main(
                     except Exception as e:
                         print(
                             "[NETWORK] Telemetry cycle failed: "
+                            f"{type(e).__name__}: {e}"
+                        )
+
+                # ---------- FILE ACTIVITY (downloads / USB) ----------
+
+                files_now = time.monotonic()
+
+                if (
+                    current_session_id is None
+                    and files_now - last_file_activity
+                    >= FILE_ACTIVITY_INTERVAL
+                ):
+                    last_file_activity = files_now
+
+                    try:
+                        file_activity.poll()
+                        file_activity.flush(client.send_file_events)
+                    except Exception as e:
+                        print(
+                            "[FILES] Cycle failed: "
                             f"{type(e).__name__}: {e}"
                         )
 

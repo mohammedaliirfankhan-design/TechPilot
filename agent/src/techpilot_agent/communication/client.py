@@ -51,6 +51,16 @@ class TechPilotClient:
         response.raise_for_status()
         return response.json()
 
+    def send_file_events(self, events: list[dict]) -> dict:
+        response = requests.post(
+            f"{self.base_url}/api/v1/security/files/events",
+            json={"events": events},
+            headers=self._headers(),
+            timeout=15,
+        )
+        response.raise_for_status()
+        return response.json()
+
     def get_pending_remote_session(self, device_id: str) -> dict:
         response = requests.get(
             f"{self.base_url}/api/v1/remote/sessions/pending/{device_id}",
