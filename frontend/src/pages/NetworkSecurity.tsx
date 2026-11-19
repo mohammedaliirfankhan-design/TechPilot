@@ -31,6 +31,12 @@ import {
   type Verdict,
 } from "./networkInsights";
 
+import {
+  fetchDeviceFindings,
+  mergeFileFindings,
+  type FileFindingsReport,
+} from "./fileFindings";
+
 import "./NetworkSecurity.css";
 
 const API_BASE_URL = (
@@ -126,6 +132,7 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
   const [details, setDetails] = useState<NetworkDeviceDetails | null>(null);
   const [history, setHistory] = useState<NetworkSnapshotHistory | null>(null);
   const [domains, setDomains] = useState<DomainReport | null>(null);
+  const [fileFindings, setFileFindings] = useState<FileFindingsReport | null>(null);
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [deviceError, setDeviceError] = useState<string | null>(null);
 
@@ -223,6 +230,32 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
     return () => window.clearInterval(timer);
   }, [selectedDeviceId, loadDevice, loadOverview]);
 
+  // Download and USB findings for the selected device (optional: an older
+  // backend or a failure here must never break the rest of the page).
+  useEffect(() => {
+    if (!selectedDeviceId) {
+      setFileFindings(null);
+      return;
+    }
+
+    let cancelled = false;
+    setFileFindings(null);
+
+    const load = () => {
+      void fetchDeviceFindings(token, selectedDeviceId).then((report) => {
+        if (!cancelled) setFileFindings(report);
+      });
+    };
+
+    load();
+    const timer = window.setInterval(load, AUTO_REFRESH_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [token, selectedDeviceId]);
+
   const refreshAll = () => {
     void loadOverview();
     if (selectedDeviceId) void loadDevice(selectedDeviceId);
@@ -230,9 +263,14 @@ function NetworkSecurity({ token }: NetworkSecurityProps) {
 
   const snapshot = details?.snapshot ?? null;
 
-  const assessment = useMemo(
+  const baseAssessment = useMemo(
     () => assessDevice(snapshot, now, domains),
     [snapshot, now, domains],
+  );
+
+  const assessment = useMemo(
+    () => mergeFileFindings(baseAssessment, fileFindings),
+    [baseAssessment, fileFindings],
   );
 
   const filteredDevices = useMemo(() => {
