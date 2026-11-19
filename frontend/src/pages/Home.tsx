@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { getAgents, type Agent } from "../api";
+import RecentFindings from "../components/RecentFindings";
 import {
   LATEST_AGENT_VERSION,
   deviceName,
@@ -13,7 +14,7 @@ const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
 ).replace(/\/+$/, "");
 
-type Page = "home" | "devices" | "network-security";
+type Page = "home" | "devices" | "network-security" | "file-activity";
 
 type NetworkOverview = {
   total_devices: number;
@@ -141,6 +142,18 @@ function Home({ token, onNavigate, onOpenDevice }: HomeProps) {
           <span className="tph-stat-note">Listening ports across reporting devices</span>
         </div>
       </section>
+
+      {/* ================= RECENT FINDINGS ================= */}
+      <RecentFindings
+        token={token}
+        coveredDevices={
+          agents.filter(
+            (agent) => !isOlderVersion(agent.agent_version, "1.5.0"),
+          ).length
+        }
+        totalDevices={agents.length}
+        onViewAll={() => onNavigate("file-activity")}
+      />
 
       <div className="tph-grid">
         {/* ================= RECENT DEVICES ================= */}

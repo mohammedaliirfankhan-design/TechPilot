@@ -813,7 +813,7 @@ export function siteOf(domain: string): string {
 
 const RISK_RANK: Record<DomainRisk, number> = { risky: 0, unnecessary: 1, ok: 2 };
 
-const BACKGROUND = new Set(["system", "ads"]);
+const BACKGROUND = new Set(["system", "ads", "own"]);
 
 /** Background traffic the person did not choose: hidden as a count. */
 export function isBackground(site: Site) {
