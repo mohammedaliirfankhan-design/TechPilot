@@ -1,4 +1,4 @@
-// file-activity-page: v5
+// file-activity-page: v6
 import {
   useCallback,
   useEffect,
@@ -284,6 +284,7 @@ function FileActivity({ token }: FileActivityProps) {
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
+  const [retentionDays, setRetentionDays] = useState<number | null>(null);
 
   const requestCounter = useRef(0);
   const copyTimer = useRef<number | null>(null);
@@ -301,6 +302,29 @@ function FileActivity({ token }: FileActivityProps) {
       })
       .catch(() => {
         // The picker is optional; "All devices" still works.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  /* ---------------- how long activity is kept (optional) ---------------- */
+
+  useEffect(() => {
+    let cancelled = false;
+
+    request<{ cleanup: { enabled: boolean; retention_days: number } }>(
+      token,
+      "/api/v1/security/files/maintenance/status",
+    )
+      .then((status) => {
+        if (!cancelled && status.cleanup.enabled) {
+          setRetentionDays(status.cleanup.retention_days);
+        }
+      })
+      .catch(() => {
+        // Older backend or no access: the page simply omits the note.
       });
 
     return () => {
@@ -722,6 +746,13 @@ function FileActivity({ token }: FileActivityProps) {
             <p className="fa-note">
               Showing the latest {events.length} of {totalInRange} events. Pick
               a device or a shorter time range to see the rest.
+            </p>
+          )}
+
+          {retentionDays !== null && (
+            <p className="fa-note">
+              Activity older than {retentionDays} days is removed
+              automatically.
             </p>
           )}
         </div>
