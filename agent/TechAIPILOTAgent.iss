@@ -1,5 +1,5 @@
 #define MyAppName "TechAIPILOT Agent"
-#define MyAppVersion "1.5.0"
+#define MyAppVersion "1.5.1"
 #define MyAppPublisher "TechAIPILOT"
 #define MyAppExeName "TechAIPILOTAgent.exe"
 
