@@ -1,3 +1,4 @@
+// file-activity-page: v4
 import {
   useCallback,
   useEffect,
@@ -80,6 +81,7 @@ type Flag = {
   key: string;
   label: string;
   level: "high" | "medium" | "info";
+  hint?: string;
 };
 
 type FileActivityProps = {
@@ -166,22 +168,23 @@ function formatWhen(iso: string): string {
   });
 }
 
-function describeEvent(event: FileEventItem): string {
+function describeEvent(event: FileEventItem): {
+  label: string;
+  detail: string | null;
+} {
   switch (event.event_type) {
     case "browser_download":
-      return event.browser
-        ? `Downloaded in ${event.browser}`
-        : "Downloaded in a browser";
+      return { label: "Downloaded", detail: event.browser };
     case "file_downloaded":
-      return "Saved from the internet";
+      return { label: "Downloaded", detail: "other app" };
     case "usb_inserted":
-      return "USB drive plugged in";
+      return { label: "USB plugged in", detail: null };
     case "usb_removed":
-      return "USB drive removed";
+      return { label: "USB removed", detail: null };
     case "usb_file_written":
-      return "Copied to a USB drive";
+      return { label: "Copied to USB", detail: null };
     default:
-      return event.event_type;
+      return { label: event.event_type, detail: null };
   }
 }
 
@@ -195,10 +198,47 @@ function describeDrive(event: FileEventItem): string {
   return parts.join(" · ");
 }
 
+// What the browser (Chrome / Edge) itself said about a download. Many
+// downloads carry a code only because they are uncommon, so only the
+// serious ones count as "needs attention".
+function browserReason(
+  dangerType: number | null,
+): { label: string; level: Flag["level"] } | null {
+  switch (dangerType) {
+    case 1:
+      return { label: "Dangerous file type", level: "high" };
+    case 2:
+      return { label: "Dangerous site", level: "high" };
+    case 3:
+      return { label: "Dangerous content", level: "high" };
+    case 4:
+      return { label: "Possibly dangerous", level: "high" };
+    case 5:
+      return { label: "Uncommon download", level: "info" };
+    case 6:
+      return { label: "Kept after warning", level: "medium" };
+    case 7:
+      return { label: "Dangerous host", level: "high" };
+    case 8:
+      return { label: "Unwanted software", level: "high" };
+    default:
+      return null;
+  }
+}
+
 function getFlags(event: FileEventItem): Flag[] {
   const flags: Flag[] = [];
 
-  if (event.browser_flagged) {
+  const reason = browserReason(event.danger_type);
+
+  if (reason) {
+    flags.push({
+      key: "browser",
+      label: reason.label,
+      level: reason.level,
+      hint: `Browser reason code ${event.danger_type}`,
+    });
+  } else if (event.browser_flagged) {
     flags.push({ key: "browser", label: "Browser warned", level: "high" });
   }
 
@@ -432,15 +472,6 @@ function FileActivity({ token }: FileActivityProps) {
       <style>{STYLES}</style>
 
       <header className="fa-header">
-        <div>
-          <h1 className="fa-title">Files &amp; Downloads</h1>
-          <p className="fa-subtitle">
-            What is being downloaded to company PCs, and what is plugged in or
-            copied to USB drives. Only file names, sizes and where files came
-            from are recorded — never what is inside them.
-          </p>
-        </div>
-
         <div className="fa-controls">
           <label className="fa-field">
             <span>Device</span>
@@ -601,7 +632,14 @@ function FileActivity({ token }: FileActivityProps) {
 
                         {showingAll && <td>{deviceName(event)}</td>}
 
-                        <td>{describeEvent(event)}</td>
+                        <td>
+                          <span>{describeEvent(event).label}</span>
+                          {describeEvent(event).detail && (
+                            <small className="fa-category">
+                              {describeEvent(event).detail}
+                            </small>
+                          )}
+                        </td>
 
                         <td className="fa-file">
                           {isDrive ? (
@@ -662,6 +700,7 @@ function FileActivity({ token }: FileActivityProps) {
                               <span
                                 key={flag.key}
                                 className={`fa-flag fa-flag-${flag.level}`}
+                                title={flag.hint}
                               >
                                 {flag.label}
                               </span>
@@ -713,56 +752,54 @@ function FileActivity({ token }: FileActivityProps) {
    ========================================================= */
 
 const STYLES = `
-.fa-page { display: flex; flex-direction: column; gap: 20px; color: var(--text, #eef4ff); }
-.fa-header { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-between; align-items: flex-end; }
-.fa-title { margin: 0 0 6px; font-size: 1.6rem; font-weight: 650; letter-spacing: -0.01em; }
-.fa-subtitle { margin: 0; max-width: 640px; color: var(--text-soft, #9caac0); line-height: 1.5; font-size: 0.92rem; }
+.fa-page { --fa-card: #111a24; --fa-field: #0b1118; --fa-border: #1e2b3a; --fa-soft: #9aa8b6; --fa-muted: #6b7a8a; --fa-accent: #3fc28f; --fa-amber: #e9b44c; --fa-red: #ff6b81; display: flex; flex-direction: column; gap: 20px; color: inherit; }
+.fa-header { display: flex; flex-wrap: wrap; justify-content: flex-end; }
 .fa-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
-.fa-field { display: flex; flex-direction: column; gap: 6px; font-size: 0.74rem; color: var(--text-muted, #647187); text-transform: uppercase; letter-spacing: 0.06em; }
-.fa-field select { min-width: 170px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border, rgba(120,160,220,0.14)); background: var(--panel-strong, rgba(13,20,34,0.92)); color: var(--text, #eef4ff); font: inherit; font-size: 0.9rem; text-transform: none; letter-spacing: 0; }
-.fa-refresh { padding: 9px 16px; border-radius: 10px; border: 1px solid var(--border-bright, rgba(70,170,255,0.35)); background: rgba(60,141,255,0.12); color: var(--text, #eef4ff); font: inherit; font-size: 0.9rem; cursor: pointer; }
+.fa-field { display: flex; flex-direction: column; gap: 6px; font-size: 0.74rem; color: var(--fa-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.fa-field select { min-width: 170px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--fa-border); background: var(--fa-field); color: inherit; font: inherit; font-size: 0.9rem; text-transform: none; letter-spacing: 0; }
+.fa-refresh { padding: 9px 16px; border-radius: 10px; border: 1px solid rgba(63,194,143,0.45); background: rgba(63,194,143,0.1); color: var(--fa-accent); font: inherit; font-size: 0.9rem; cursor: pointer; }
 .fa-refresh:disabled { opacity: 0.6; cursor: default; }
-.fa-error { display: flex; gap: 12px; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255,85,113,0.45); background: rgba(255,85,113,0.1); color: #ffc2cc; }
-.fa-error button { padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255,85,113,0.5); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.fa-error { display: flex; gap: 12px; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255,107,129,0.45); background: rgba(255,107,129,0.1); color: #ffc2cc; }
+.fa-error button { padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255,107,129,0.5); background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .fa-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
-.fa-card { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; border-radius: var(--radius, 16px); border: 1px solid var(--border, rgba(120,160,220,0.14)); background: var(--panel, rgba(10,16,28,0.78)); }
+.fa-card { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; border-radius: 16px; border: 1px solid var(--fa-border); background: var(--fa-card); }
 .fa-card strong { font-size: 1.9rem; font-weight: 650; line-height: 1.1; }
-.fa-card small { color: var(--text-muted, #647187); font-size: 0.78rem; }
-.fa-card-label { color: var(--text-soft, #9caac0); font-size: 0.8rem; }
-.fa-card-alert { border-color: rgba(255,200,87,0.45); }
-.fa-card-alert strong { color: var(--yellow, #ffc857); }
+.fa-card small { color: var(--fa-muted); font-size: 0.78rem; }
+.fa-card-label { color: var(--fa-soft); font-size: 0.8rem; }
+.fa-card-alert { border-color: rgba(233,180,76,0.45); }
+.fa-card-alert strong { color: var(--fa-amber); }
 .fa-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .fa-layout-wide { grid-template-columns: minmax(0, 1fr) 280px; }
-@media (max-width: 1100px) { .fa-layout-wide { grid-template-columns: minmax(0, 1fr); } }
-.fa-panel { padding: 16px; border-radius: var(--radius, 16px); border: 1px solid var(--border, rgba(120,160,220,0.14)); background: var(--panel, rgba(10,16,28,0.78)); min-width: 0; }
+@media (max-width: 1500px) { .fa-layout-wide { grid-template-columns: minmax(0, 1fr); } }
+.fa-panel { padding: 16px; border-radius: 16px; border: 1px solid var(--fa-border); background: var(--fa-card); min-width: 0; }
 .fa-panel-head { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .fa-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.fa-chip { display: inline-flex; gap: 8px; align-items: center; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--border, rgba(120,160,220,0.14)); background: transparent; color: var(--text-soft, #9caac0); font: inherit; font-size: 0.85rem; cursor: pointer; }
-.fa-chip span { padding: 1px 7px; border-radius: 999px; background: rgba(120,160,220,0.14); font-size: 0.75rem; }
-.fa-chip.active { color: var(--text, #eef4ff); border-color: var(--border-bright, rgba(70,170,255,0.35)); background: rgba(60,141,255,0.14); }
-.fa-updated { color: var(--text-muted, #647187); font-size: 0.78rem; }
+.fa-chip { display: inline-flex; gap: 8px; align-items: center; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--fa-border); background: transparent; color: var(--fa-soft); font: inherit; font-size: 0.85rem; cursor: pointer; }
+.fa-chip span { padding: 1px 7px; border-radius: 999px; background: rgba(154,168,182,0.14); font-size: 0.75rem; }
+.fa-chip.active { color: inherit; border-color: rgba(63,194,143,0.5); background: rgba(63,194,143,0.12); }
+.fa-updated { color: var(--fa-muted); font-size: 0.78rem; }
 .fa-table-wrap { overflow-x: auto; }
 .fa-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
-.fa-table th { text-align: left; padding: 8px 10px; color: var(--text-muted, #647187); font-weight: 500; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--border, rgba(120,160,220,0.14)); white-space: nowrap; }
-.fa-table td { padding: 10px; border-bottom: 1px solid rgba(120,160,220,0.08); vertical-align: top; }
+.fa-table th { text-align: left; padding: 8px; color: var(--fa-soft); font-weight: 500; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--fa-border); white-space: nowrap; }
+.fa-table td { padding: 9px 8px; border-bottom: 1px solid rgba(30,43,58,0.7); vertical-align: top; }
 .fa-nowrap { white-space: nowrap; }
-.fa-file { max-width: 300px; }
-.fa-file-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
-.fa-hash { margin-top: 3px; padding: 0; border: 0; background: none; color: var(--text-muted, #647187); font-family: ui-monospace, Consolas, monospace; font-size: 0.72rem; cursor: pointer; }
-.fa-hash:hover { color: var(--cyan, #20d8ff); }
-.fa-category { display: block; color: var(--text-muted, #647187); font-size: 0.74rem; }
-.fa-muted { color: var(--text-muted, #647187); }
+.fa-file { max-width: 240px; }
+.fa-file-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 230px; }
+.fa-hash { margin-top: 3px; padding: 0; border: 0; background: none; color: var(--fa-muted); font-family: ui-monospace, Consolas, monospace; font-size: 0.72rem; cursor: pointer; }
+.fa-hash:hover { color: var(--fa-accent); }
+.fa-category { display: block; color: var(--fa-muted); font-size: 0.74rem; }
+.fa-muted { color: var(--fa-muted); }
 .fa-flags { display: flex; flex-wrap: wrap; gap: 6px; }
 .fa-flag { padding: 2px 9px; border-radius: 999px; font-size: 0.74rem; white-space: nowrap; }
-.fa-flag-high { background: rgba(255,85,113,0.16); color: #ff9aac; border: 1px solid rgba(255,85,113,0.4); }
-.fa-flag-medium { background: rgba(255,200,87,0.14); color: var(--yellow, #ffc857); border: 1px solid rgba(255,200,87,0.4); }
-.fa-flag-info { background: rgba(156,170,192,0.12); color: var(--text-soft, #9caac0); border: 1px solid var(--border, rgba(120,160,220,0.14)); }
-.fa-empty { margin: 18px 4px; color: var(--text-soft, #9caac0); line-height: 1.5; }
-.fa-note { margin: 12px 4px 0; color: var(--text-muted, #647187); font-size: 0.8rem; }
+.fa-flag-high { background: rgba(255,107,129,0.14); color: #ff8fa0; border: 1px solid rgba(255,107,129,0.4); }
+.fa-flag-medium { background: rgba(233,180,76,0.14); color: var(--fa-amber); border: 1px solid rgba(233,180,76,0.4); }
+.fa-flag-info { background: rgba(154,168,182,0.12); color: var(--fa-soft); border: 1px solid var(--fa-border); }
+.fa-empty { margin: 18px 4px; color: var(--fa-soft); line-height: 1.5; }
+.fa-note { margin: 12px 4px 0; color: var(--fa-muted); font-size: 0.8rem; }
 .fa-side h2 { margin: 0 0 12px; font-size: 0.95rem; font-weight: 600; }
 .fa-domains { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .fa-domains li { display: flex; justify-content: space-between; gap: 10px; font-size: 0.86rem; }
-.fa-domains span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-soft, #9caac0); }
+.fa-domains span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fa-soft); }
 `;
 
 export default FileActivity;
