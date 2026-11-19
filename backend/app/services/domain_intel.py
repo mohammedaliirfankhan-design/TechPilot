@@ -22,6 +22,7 @@ the last good copy is kept.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 import urllib.request
@@ -47,6 +48,7 @@ CATEGORY_LABELS = {
     "social": "Social media",
     "streaming": "Video & streaming",
     "system": "Windows & Microsoft services",
+    "own": "TechAIPILOT",
     "ads": "Ads & trackers",
     "other": "Other",
 }
@@ -107,7 +109,7 @@ _CURATED: dict[str, set[str]] = {
         "msn.com", "bing.com", "bing.net", "skype.com", "sharepoint.com",
         "onedrive.com", "msocsp.com", "digicert.com", "pki.goog",
         "gstatic.com", "googleapis.com", "msecnd.net", "windows.net",
-        "xboxlive.com", "onrender.com",
+        "xboxlive.com",
     },
 }
 
@@ -150,6 +152,20 @@ _NEVER_RISKY = {
     "onrender.com", "akamaihd.net", "akamaized.net", "fastly.net",
     "firebaseapp.com", "web.app", "weebly.com", "wixsite.com",
 }
+
+# The company's own services: this console and its API. They stay out of the
+# website list like background traffic, but under their own name instead of
+# "Windows & Microsoft services". Other websites hosted on Render are ordinary
+# websites and show up normally. If the services move, set
+# TECHAIPILOT_OWN_HOSTS to a comma-separated list of their host names.
+_DEFAULT_OWN_HOSTS = "techaipilot-api.onrender.com,techaipilot-frontend.onrender.com"
+
+
+def _own_hosts() -> set[str]:
+    raw = os.getenv("TECHAIPILOT_OWN_HOSTS") or _DEFAULT_OWN_HOSTS
+
+    return {h.strip().lower().rstrip(".") for h in raw.split(",") if h.strip()}
+
 
 # Downloadable lists: (category, url, format)
 _FEEDS = [
@@ -292,6 +308,10 @@ def classify(domain: str) -> tuple[str, str, str | None]:
 
     domain = (domain or "").strip().lower().rstrip(".")
     bare = domain[4:] if domain.startswith("www.") else domain
+
+    # The company's own services (see _own_hosts).
+    if domain in _own_hosts() or bare in _own_hosts():
+        return "own", RISK_OK, None
 
     with _lock:
         exact = _exact
