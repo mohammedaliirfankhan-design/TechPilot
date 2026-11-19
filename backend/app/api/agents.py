@@ -1,6 +1,8 @@
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
@@ -475,17 +477,32 @@ def rotate_agent_token(
     }
 
 
+# Agents 1.5.1 and newer tell us which version they run. Older agents send
+# no body at all, which still works.
+class HeartbeatRequest(BaseModel):
+    agent_version: str | None = None
+
+
+_VERSION_PATTERN = re.compile(r"^[0-9]{1,3}(\.[0-9]{1,3}){1,3}$")
+
+
 @router.post("/{device_id}/heartbeat")
 def agent_heartbeat(
     device_id: str,
     db: Session = Depends(get_db),
     current_agent: Agent = Depends(get_current_agent),
+    payload: HeartbeatRequest | None = None,
 ):
     if current_agent.device_id != device_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Agent credential does not match device.",
         )
+
+    version = (payload.agent_version or "").strip() if payload else ""
+
+    if version and _VERSION_PATTERN.match(version):
+        current_agent.agent_version = version
 
     current_agent.last_seen = datetime.now(timezone.utc)
 
