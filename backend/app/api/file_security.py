@@ -23,12 +23,18 @@ from app.models.user import User
 from app.security.agent_auth import get_current_agent
 from app.services.domain_intel import CATEGORY_LABELS, classify
 from app.services.organization import get_user_default_organization
+from app.services.file_retention import file_retention_status, start_file_retention
 
 
 router = APIRouter(
     prefix="/api/v1/security/files",
     tags=["File Activity"],
 )
+
+
+# Remove file events older than the retention period once a day, in the
+# background (default 90 days; see file_retention.py).
+start_file_retention()
 
 
 EVENT_TYPES = {
@@ -502,3 +508,11 @@ def get_file_activity_overview(
         "top_domains": top_domains,
         "events": events,
     }
+
+
+@router.get("/maintenance/status")
+def get_file_maintenance_status(
+    current_user: User = Depends(get_current_user),
+):
+    """How long file events are kept and when the last cleanup ran."""
+    return {"cleanup": file_retention_status()}
