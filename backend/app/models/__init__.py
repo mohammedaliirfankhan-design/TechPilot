@@ -15,6 +15,7 @@ from app.models.network_connection import NetworkConnection
 from app.models.network_listener import NetworkListener
 from app.models.firewall_posture import FirewallPosture
 from app.models.file_event import FileEvent
+from app.models.file_finding import FileFinding
 
 __all__ = [
     "User",
@@ -34,4 +35,5 @@ __all__ = [
     "NetworkListener",
     "FirewallPosture",
     "FileEvent",
+    "FileFinding",
 ]

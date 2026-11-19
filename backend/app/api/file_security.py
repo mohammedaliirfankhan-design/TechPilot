@@ -19,11 +19,20 @@ from app.api.auth import get_current_user
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.file_event import FileEvent
+from app.models.file_finding import FileFinding
 from app.models.user import User
 from app.security.agent_auth import get_current_agent
 from app.services.domain_intel import CATEGORY_LABELS, classify
 from app.services.organization import get_user_default_organization
 from app.services.file_retention import file_retention_status, start_file_retention
+from app.services.email_notify import (
+    EmailError,
+    TooSoon,
+    email_status,
+    send_test_email,
+    start_findings_notifier,
+)
+from app.services.file_findings import evaluate_new_events
 
 
 router = APIRouter(
@@ -35,6 +44,9 @@ router = APIRouter(
 # Remove file events older than the retention period once a day, in the
 # background (default 90 days; see file_retention.py).
 start_file_retention()
+
+# Email admins about new findings (only if sending is set up; see email_notify.py).
+start_findings_notifier()
 
 
 EVENT_TYPES = {
@@ -330,6 +342,9 @@ def receive_file_events(
 
             db.commit()
 
+    # Check the new events against the finding rules. Never raises.
+    evaluate_new_events(db, current_agent, fresh)
+
     return {
         "status": "accepted",
         "accepted": accepted,
@@ -516,3 +531,159 @@ def get_file_maintenance_status(
 ):
     """How long file events are kept and when the last cleanup ran."""
     return {"cleanup": file_retention_status()}
+
+
+# =========================================================
+# CONSOLE: FINDINGS (things an admin should look at)
+# =========================================================
+
+def _agent_reports_files(agent_version: str | None) -> bool:
+    """Agents 1.5.0 and newer report downloads and USB activity."""
+    try:
+        parts = [int(p) for p in (agent_version or "").split(".")[:3]]
+    except ValueError:
+        return False
+
+    while len(parts) < 3:
+        parts.append(0)
+
+    return tuple(parts) >= (1, 5, 0)
+
+
+@router.get("/findings")
+def list_file_findings(
+    hours: int = Query(24 * 7, ge=1, le=24 * 90),
+    device_id: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    organization = _require_user_organization(db, current_user)
+
+    now = datetime.now(timezone.utc)
+    filters = [
+        FileFinding.organization_id == organization.id,
+        FileFinding.last_seen_at >= now - timedelta(hours=hours),
+    ]
+
+    reports_files = None
+
+    if device_id is not None:
+        agent = (
+            db.query(Agent)
+            .filter(
+                Agent.device_id == device_id,
+                Agent.organization_id == organization.id,
+            )
+            .first()
+        )
+
+        if agent is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Device not found.",
+            )
+
+        filters.append(FileFinding.device_id == device_id)
+
+        has_events = (
+            db.query(func.count(FileEvent.id))
+            .filter(
+                FileEvent.device_id == device_id,
+                FileEvent.organization_id == organization.id,
+                FileEvent.occurred_at >= now - timedelta(days=30),
+            )
+            .scalar()
+            or 0
+        ) > 0
+
+        # Tells the console whether "no findings" really means "all clear".
+        reports_files = has_events or _agent_reports_files(agent.agent_version)
+
+    total = db.query(func.count(FileFinding.id)).filter(*filters).scalar() or 0
+
+    rows = (
+        db.query(FileFinding, Agent.hostname, Agent.display_name)
+        .join(Agent, Agent.device_id == FileFinding.device_id)
+        .filter(*filters)
+        .order_by(FileFinding.last_seen_at.desc(), FileFinding.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "hours": hours,
+        "total": total,
+        "device_reports_files": reports_files,
+        "findings": [
+            {
+                "id": finding.id,
+                "device_id": finding.device_id,
+                "hostname": hostname,
+                "display_name": display_name,
+                "rule": finding.rule,
+                "severity": finding.severity,
+                "title": finding.title,
+                "detail": finding.detail,
+                "subject": finding.subject,
+                "occurred_at": finding.last_seen_at,
+                "occurrences": finding.occurrences,
+                "emailed": finding.notified_at is not None,
+            }
+            for finding, hostname, display_name in rows
+        ],
+    }
+
+
+@router.get("/notifications/status")
+def get_notification_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Is email set up, and did the last send work? Never shows secrets."""
+    organization = _require_user_organization(db, current_user)
+
+    waiting = (
+        db.query(func.count(FileFinding.id))
+        .filter(
+            FileFinding.organization_id == organization.id,
+            FileFinding.notified_at.is_(None),
+        )
+        .scalar()
+        or 0
+    )
+
+    result = email_status()
+    result["waiting"] = waiting
+
+    return {"email": result}
+
+
+@router.post("/notifications/test")
+def send_notification_test(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Send a short test email so you can check the setup."""
+    organization = _require_user_organization(db, current_user)
+
+    try:
+        return send_test_email(organization.id)
+
+    except TooSoon as error:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(error),
+        )
+
+    except EmailError as error:
+        not_ready = email_status()["provider"] is None or not email_status()["recipients"]
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+                if not_ready
+                else status.HTTP_502_BAD_GATEWAY
+            ),
+            detail=str(error),
+        )

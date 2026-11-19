@@ -1,6 +1,6 @@
-# file-retention-version: 1
+# file-retention-version: 2
 """
-Daily cleanup of old file events (downloads and USB activity).
+Daily cleanup of old file events and findings (downloads and USB activity).
 
 Works like the network data cleanup: a background thread starts with the API,
 waits a couple of minutes, then removes old rows once a day. Nothing to
@@ -45,6 +45,7 @@ _state: dict[str, Any] = {
     "last_run_at": None,
     "last_deleted": 0,
     "total_deleted": 0,
+    "findings_deleted": 0,
     "last_error": None,
     "next_run_at": None,
 }
@@ -126,6 +127,42 @@ def purge_old_file_events(
     return deleted_total
 
 
+def purge_old_findings(
+    session_factory: Callable[[], Any],
+    days: int,
+    now: datetime | None = None,
+) -> int:
+    """Delete findings whose activity is older than ``days``. Returns how many."""
+    from app.models.file_finding import FileFinding
+
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=days)
+    deleted_total = 0
+
+    while deleted_total < MAX_DELETE_PER_RUN:
+        with session_factory() as db:
+            ids = [
+                row[0]
+                for row in db.query(FileFinding.id)
+                .filter(FileFinding.last_seen_at < cutoff)
+                .order_by(FileFinding.id)
+                .limit(BATCH_SIZE)
+                .all()
+            ]
+
+            if not ids:
+                break
+
+            db.query(FileFinding).filter(FileFinding.id.in_(ids)).delete(
+                synchronize_session=False
+            )
+            db.commit()
+
+        deleted_total += len(ids)
+
+    return deleted_total
+
+
 def run_once(session_factory: Callable[[], Any]) -> int:
     """One cleanup pass. Never raises: problems are recorded in the status."""
     days = retention_days()
@@ -143,11 +180,21 @@ def run_once(session_factory: Callable[[], Any]) -> int:
         _update(last_run_at=datetime.now(timezone.utc), last_error=message)
         return 0
 
+    findings_deleted = 0
+    findings_error = None
+
+    try:
+        findings_deleted = purge_old_findings(session_factory, days)
+    except Exception as exc:  # noqa: BLE001 - e.g. the findings table is not created yet
+        findings_error = f"findings: {type(exc).__name__}: {exc}"[:300]
+        logger.warning("Finding cleanup failed: %s", findings_error)
+
     with _lock:
         _state["last_run_at"] = datetime.now(timezone.utc)
         _state["last_deleted"] = deleted
         _state["total_deleted"] += deleted
-        _state["last_error"] = None
+        _state["findings_deleted"] += findings_deleted
+        _state["last_error"] = findings_error
 
     if deleted:
         logger.info("File event cleanup removed %d events older than %d days", deleted, days)
@@ -221,6 +268,7 @@ def file_retention_status() -> dict[str, Any]:
         "last_run_at": _iso(snapshot["last_run_at"]),
         "last_deleted": snapshot["last_deleted"],
         "total_deleted": snapshot["total_deleted"],
+        "findings_deleted": snapshot["findings_deleted"],
         "last_error": snapshot["last_error"],
         "next_run_at": _iso(snapshot["next_run_at"]),
     }
