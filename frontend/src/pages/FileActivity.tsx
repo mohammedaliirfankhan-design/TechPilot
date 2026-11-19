@@ -1,4 +1,4 @@
-// file-activity-page: v4
+// file-activity-page: v5
 import {
   useCallback,
   useEffect,
@@ -212,7 +212,7 @@ function browserReason(
     case 3:
       return { label: "Dangerous content", level: "high" };
     case 4:
-      return { label: "Possibly dangerous", level: "high" };
+      return { label: "Browser unsure", level: "info" };
     case 5:
       return { label: "Uncommon download", level: "info" };
     case 6:
@@ -609,10 +609,8 @@ function FileActivity({ token }: FileActivityProps) {
                 <thead>
                   <tr>
                     <th>When</th>
-                    {showingAll && <th>Device</th>}
                     <th>What happened</th>
                     <th>File</th>
-                    <th>Size</th>
                     <th>From</th>
                     <th>Notes</th>
                   </tr>
@@ -627,10 +625,13 @@ function FileActivity({ token }: FileActivityProps) {
                     return (
                       <tr key={event.id}>
                         <td className="fa-nowrap">
-                          {formatWhen(event.occurred_at)}
+                          <span>{formatWhen(event.occurred_at)}</span>
+                          {showingAll && (
+                            <small className="fa-category">
+                              {deviceName(event)}
+                            </small>
+                          )}
                         </td>
-
-                        {showingAll && <td>{deviceName(event)}</td>}
 
                         <td>
                           <span>{describeEvent(event).label}</span>
@@ -653,24 +654,26 @@ function FileActivity({ token }: FileActivityProps) {
                                 {event.file_name ?? "Unnamed file"}
                               </span>
 
-                              {event.sha256 && (
-                                <button
-                                  type="button"
-                                  className="fa-hash"
-                                  title={`SHA-256: ${event.sha256} (click to copy)`}
-                                  onClick={() => copyHash(event.sha256 as string)}
-                                >
-                                  {copiedHash === event.sha256
-                                    ? "Copied"
-                                    : `${event.sha256.slice(0, 10)}…`}
-                                </button>
-                              )}
+                              <small className="fa-category">
+                                <span>{formatSize(event.file_size)}</span>
+                                {event.sha256 && (
+                                  <>
+                                    {" · "}
+                                    <button
+                                      type="button"
+                                      className="fa-hash"
+                                      title={`SHA-256: ${event.sha256} (click to copy)`}
+                                      onClick={() => copyHash(event.sha256 as string)}
+                                    >
+                                      {copiedHash === event.sha256
+                                        ? "Copied"
+                                        : `${event.sha256.slice(0, 10)}…`}
+                                    </button>
+                                  </>
+                                )}
+                              </small>
                             </>
                           )}
-                        </td>
-
-                        <td className="fa-nowrap">
-                          {isDrive ? "—" : formatSize(event.file_size)}
                         </td>
 
                         <td>
@@ -783,14 +786,15 @@ const STYLES = `
 .fa-table th { text-align: left; padding: 8px; color: var(--fa-soft); font-weight: 500; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--fa-border); white-space: nowrap; }
 .fa-table td { padding: 9px 8px; border-bottom: 1px solid rgba(30,43,58,0.7); vertical-align: top; }
 .fa-nowrap { white-space: nowrap; }
+.fa-table td { overflow-wrap: anywhere; }
 .fa-file { max-width: 240px; }
 .fa-file-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 230px; }
-.fa-hash { margin-top: 3px; padding: 0; border: 0; background: none; color: var(--fa-muted); font-family: ui-monospace, Consolas, monospace; font-size: 0.72rem; cursor: pointer; }
+.fa-hash { margin: 0; padding: 0; border: 0; background: none; color: var(--fa-muted); font-family: ui-monospace, Consolas, monospace; font-size: 0.72rem; cursor: pointer; }
 .fa-hash:hover { color: var(--fa-accent); }
 .fa-category { display: block; color: var(--fa-muted); font-size: 0.74rem; }
 .fa-muted { color: var(--fa-muted); }
 .fa-flags { display: flex; flex-wrap: wrap; gap: 6px; }
-.fa-flag { padding: 2px 9px; border-radius: 999px; font-size: 0.74rem; white-space: nowrap; }
+.fa-flag { padding: 2px 9px; border-radius: 999px; font-size: 0.74rem; }
 .fa-flag-high { background: rgba(255,107,129,0.14); color: #ff8fa0; border: 1px solid rgba(255,107,129,0.4); }
 .fa-flag-medium { background: rgba(233,180,76,0.14); color: var(--fa-amber); border: 1px solid rgba(233,180,76,0.4); }
 .fa-flag-info { background: rgba(154,168,182,0.12); color: var(--fa-soft); border: 1px solid var(--fa-border); }
