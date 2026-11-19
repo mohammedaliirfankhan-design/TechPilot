@@ -8,6 +8,7 @@ import Home from "./pages/Home";
 import Devices from "./pages/Devices";
 import DeviceDetails from "./pages/DeviceDetails";
 import NetworkSecurity from "./pages/NetworkSecurity";
+import FileActivity from "./pages/FileActivity";
 import RemoteSession from "./pages/RemoteSession";
 import Login from "./pages/login";
 import CreateAccount from "./pages/CreateAccount";
@@ -28,7 +29,7 @@ import type {
 import "./tokens.css";
 import "./shell.css";
 
-type Page = "home" | "devices" | "network-security";
+type Page = "home" | "devices" | "network-security" | "file-activity";
 
 type AuthScreen =
   | "login"
@@ -41,12 +42,14 @@ const pageTitles: Record<Page, string> = {
   home: "Home",
   devices: "Devices",
   "network-security": "Network security",
+  "file-activity": "Files & downloads",
 };
 
 const pageDescriptions: Record<Page, string> = {
   home: "An overview of your enrolled devices and their network findings.",
   devices: "Enrolled TechAIPILOT agents. Open a device to start a shell or a remote session.",
     "network-security": "Is each device safe, protected, and only talking to what it should?",
+  "file-activity": "What is being downloaded to your devices and what is copied to USB drives. Only file names, sizes and sources are recorded, never what is inside the files.",
 };
 
 function App() {
@@ -293,6 +296,9 @@ function App() {
       );
     }
 
+    if (page === "file-activity") {
+      return <FileActivity token={token} />;
+    }
     if (page === "network-security") {
       return <NetworkSecurity token={token} />;
     }

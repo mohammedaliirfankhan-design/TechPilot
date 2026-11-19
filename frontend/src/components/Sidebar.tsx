@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import Logo from "./Logo";
 
-type Page = "home" | "devices" | "network-security";
+type Page = "home" | "devices" | "network-security" | "file-activity";
 
 type SidebarProps = {
   page: Page;
@@ -49,6 +49,18 @@ const NAVIGATION: NavigationItem[] = [
       <>
         <path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z" />
         <path d="m9 12 2 2 4-4" />
+      </>
+    ),
+  },
+  {
+    key: "file-activity",
+    label: "Files & downloads",
+    icon: (
+      <>
+        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" />
+        <path d="M14 3v5h5" />
+        <path d="M12 11.5v5" />
+        <path d="m9.5 14.5 2.5 2.5 2.5-2.5" />
       </>
     ),
   },

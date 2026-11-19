@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-type Page = "home" | "devices" | "network-security";
+type Page = "home" | "devices" | "network-security" | "file-activity";
 
 type TopbarProps = {
   page: Page;
