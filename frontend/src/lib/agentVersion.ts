@@ -1,6 +1,6 @@
 // The newest agent version available. Devices below this need the new installer.
 // Bump this whenever a new agent installer is released.
-export const LATEST_AGENT_VERSION = "1.2.0";
+export const LATEST_AGENT_VERSION = "1.5.2";
 
 export function isOlderVersion(
   version: string,
